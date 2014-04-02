@@ -8,6 +8,17 @@
 
 package org.duracloud.duradmin.services.controller;
 
+import static org.duracloud.services.ComputeService.SYSTEM_PREFIX;
+
+import java.text.MessageFormat;
+import java.util.LinkedHashMap;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+
 import org.duracloud.duradmin.util.ServiceInfoUtil;
 import org.duracloud.serviceapi.ServicesManager;
 import org.duracloud.serviceapi.error.NotFoundException;
@@ -19,40 +30,32 @@ import org.duracloud.serviceconfig.ServiceInfo;
 import org.duracloud.serviceconfig.user.UserConfigModeSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.stereotype.Controller;
+import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.servlet.ModelAndView;
-import org.springframework.web.servlet.mvc.Controller;
-
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-import java.text.MessageFormat;
-import java.util.LinkedHashMap;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-
-import static org.duracloud.services.ComputeService.SYSTEM_PREFIX;
 
 /**
  * 
  * @author Daniel Bernstein
  *
  */
-public class ServiceController implements Controller {
+@Controller
+public class ServiceController {
 
     protected final Logger log = LoggerFactory.getLogger(getClass());
 	
     private ServicesManager servicesManager;
     
-	public ServicesManager getServicesManager() {
-		return servicesManager;
-	}
-
-	public void setServicesManager(ServicesManager servicesManager) {
-		this.servicesManager = servicesManager;
-	}
-	
-	@Override
-	public ModelAndView handleRequest(HttpServletRequest request,
+    @Autowired
+    public ServiceController(
+        @Qualifier("servicesManager") ServicesManager servicesManager) {
+        this.servicesManager = servicesManager;
+    }
+    
+	@RequestMapping("/services/service")
+	public ModelAndView get(HttpServletRequest request,
 			HttpServletResponse response) throws Exception {
 		Integer serviceId = Integer.valueOf(request.getParameter("serviceId"));
 
@@ -88,7 +91,7 @@ public class ServiceController implements Controller {
                                        Integer deploymentId,
                                        HttpServletRequest request,
                                        HttpServletResponse response) throws Exception {
-        Map<String,String> props = getServicesManager().getDeployedServiceProps(serviceId,deploymentId);
+        Map<String,String> props = this.servicesManager.getDeployedServiceProps(serviceId,deploymentId);
         List<Map<String,String>> propList = new LinkedList<Map<String,String>>();
         for(String key : props.keySet()){
             if(!key.startsWith(SYSTEM_PREFIX)) {

@@ -203,7 +203,6 @@
   </repositories>
 
   <properties>
-    <spring.maven.artifact.version>2.5.6</spring.maven.artifact.version>
     <service.output.spaceid>x-service-out</service.output.spaceid>
     <service.work.spaceid>x-service-work</service.work.spaceid>
   </properties>
@@ -282,7 +281,7 @@
       <dependency>
         <groupId>org.springframework</groupId>
         <artifactId>spring-test</artifactId>
-        <version>${spring.maven.artifact.version}</version>
+        <version>${org.springframework.version}</version>
         <exclusions>
           <exclusion>
             <groupId>commons-logging</groupId>
@@ -294,23 +293,11 @@
       <dependency>
         <groupId>org.springframework</groupId>
         <artifactId>spring-context</artifactId>
-        <version>${spring.maven.artifact.version}</version>
+        <version>${org.springframework.version}</version>
         <exclusions>
           <exclusion>
             <groupId>commons-logging</groupId>
             <artifactId>commons-logging</artifactId>
-          </exclusion>
-        </exclusions>
-      </dependency>
-
-      <dependency>
-        <groupId>org.springframework</groupId>
-        <artifactId>org.springframework.context</artifactId>
-        <version>2.5.6.A</version>
-        <exclusions>
-          <exclusion>
-            <groupId>org.apache.commons</groupId>
-            <artifactId>com.springsource.org.apache.commons.logging</artifactId>
           </exclusion>
         </exclusions>
       </dependency>
@@ -318,7 +305,7 @@
       <dependency>
         <groupId>org.springframework</groupId>
         <artifactId>spring-beans</artifactId>
-        <version>${spring.maven.artifact.version}</version>
+        <version>${org.springframework.version}</version>
         <exclusions>
           <exclusion>
             <groupId>commons-logging</groupId>
@@ -329,8 +316,24 @@
 
       <dependency>
         <groupId>org.springframework</groupId>
-        <artifactId>org.springframework.core</artifactId>
-        <version>2.5.6.A</version>
+        <artifactId>spring-core</artifactId>
+	<version>${org.springframework.version}</version>
+        <exclusions>
+          <exclusion>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>com.springsource.org.apache.commons.logging</artifactId>
+          </exclusion>
+          <exclusion>
+            <groupId>commons-logging</groupId>
+            <artifactId>commons-logging</artifactId>
+          </exclusion>
+        </exclusions>
+      </dependency>
+
+      <dependency>
+        <groupId>org.springframework</groupId>
+        <artifactId>spring-aop</artifactId>
+	<version>${org.springframework.version}</version>
         <exclusions>
           <exclusion>
             <groupId>org.apache.commons</groupId>
@@ -341,8 +344,8 @@
 
       <dependency>
         <groupId>org.springframework</groupId>
-        <artifactId>org.springframework.beans</artifactId>
-        <version>2.5.6.A</version>
+        <artifactId>spring-web</artifactId>
+	<version>${org.springframework.version}</version>
         <exclusions>
           <exclusion>
             <groupId>org.apache.commons</groupId>
@@ -353,32 +356,8 @@
 
       <dependency>
         <groupId>org.springframework</groupId>
-        <artifactId>org.springframework.aop</artifactId>
-        <version>2.5.6.A</version>
-        <exclusions>
-          <exclusion>
-            <groupId>org.apache.commons</groupId>
-            <artifactId>com.springsource.org.apache.commons.logging</artifactId>
-          </exclusion>
-        </exclusions>
-      </dependency>
-
-      <dependency>
-        <groupId>org.springframework</groupId>
-        <artifactId>org.springframework.web</artifactId>
-        <version>2.5.6.A</version>
-        <exclusions>
-          <exclusion>
-            <groupId>org.apache.commons</groupId>
-            <artifactId>com.springsource.org.apache.commons.logging</artifactId>
-          </exclusion>
-        </exclusions>
-      </dependency>
-
-      <dependency>
-        <groupId>org.springframework</groupId>
-        <artifactId>org.springframework.web.servlet</artifactId>
-        <version>2.5.6.A</version>
+        <artifactId>spring-servlet</artifactId>
+	<version>${org.springframework.version}</version>
         <exclusions>
           <exclusion>
             <groupId>org.apache.commons</groupId>
@@ -390,7 +369,7 @@
       <dependency>
         <groupId>org.springframework</groupId>
         <artifactId>spring-context-support</artifactId>
-        <version>${spring.maven.artifact.version}</version>
+	<version>${org.springframework.version}</version>
         <exclusions>
           <exclusion>
             <groupId>commons-logging</groupId>
@@ -401,8 +380,8 @@
 
       <dependency>
         <groupId>org.springframework</groupId>
-        <artifactId>org.springframework.jdbc</artifactId>
-        <version>2.5.6.A</version>
+        <artifactId>spring-jdbc</artifactId>
+	<version>${org.springframework.version}</version>
         <exclusions>
           <exclusion>
             <groupId>org.apache.commons</groupId>
@@ -413,8 +392,8 @@
 
       <dependency>
         <groupId>org.springframework</groupId>
-        <artifactId>org.springframework.transaction</artifactId>
-        <version>2.5.6.A</version>
+        <artifactId>spring-tx</artifactId>
+	<version>${org.springframework.version}</version>
         <exclusions>
           <exclusion>
             <groupId>org.apache.commons</groupId>
@@ -423,18 +402,6 @@
         </exclusions>
       </dependency>
       
-      <dependency>
-        <groupId>org.springframework</groupId>
-        <artifactId>org.springframework.test</artifactId>
-        <version>2.5.6.A</version>
-        <exclusions>
-          <exclusion>
-            <groupId>org.apache.commons</groupId>
-            <artifactId>com.springsource.org.apache.commons.logging</artifactId>
-          </exclusion>
-        </exclusions>
-      </dependency>
-
     </dependencies>
   </dependencyManagement>
 

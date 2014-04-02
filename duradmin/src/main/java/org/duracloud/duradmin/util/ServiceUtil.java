@@ -7,6 +7,9 @@
  */
 package org.duracloud.duradmin.util;
 
+import java.util.List;
+import java.util.Map;
+
 import org.apache.commons.collections.CollectionUtils;
 import org.duracloud.common.error.DuraCloudRuntimeException;
 import org.duracloud.execdata.ExecConstants;
@@ -19,9 +22,6 @@ import org.duracloud.serviceconfig.user.MultiSelectUserConfig;
 import org.duracloud.serviceconfig.user.Option;
 import org.duracloud.serviceconfig.user.UserConfig;
 import org.duracloud.serviceconfig.user.UserConfigModeSet;
-
-import java.util.List;
-import java.util.Map;
 
 /**
  * 

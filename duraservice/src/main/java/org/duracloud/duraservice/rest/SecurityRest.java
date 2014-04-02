@@ -7,19 +7,19 @@
  */
 package org.duracloud.duraservice.rest;
 
-import org.duracloud.common.rest.RestUtil;
-import org.duracloud.security.DuracloudUserDetailsService;
-
 import static org.duracloud.security.xml.SecurityUsersDocumentBinding.createSecurityUsersFrom;
 
+import java.util.List;
+
+import javax.ws.rs.POST;
+import javax.ws.rs.Path;
+import javax.ws.rs.core.Response;
+
+import org.duracloud.common.rest.RestUtil;
+import org.duracloud.security.DuracloudUserDetailsService;
 import org.duracloud.security.domain.SecurityUserBean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import javax.ws.rs.Path;
-import javax.ws.rs.POST;
-import javax.ws.rs.core.Response;
-import java.util.List;
 
 /**
  * @author Andrew Woods

@@ -7,11 +7,14 @@
  */
 package org.duracloud.duradmin.util;
 
+import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import javax.servlet.http.HttpServletRequest;
+
 import org.apache.commons.lang.StringUtils;
-import org.duracloud.serviceapi.ServicesManager;
-import org.duracloud.serviceapi.error.NotFoundException;
-import org.duracloud.serviceapi.error.ServicesException;
-import org.duracloud.serviceconfig.ServiceInfo;
 import org.duracloud.serviceconfig.user.MultiSelectUserConfig;
 import org.duracloud.serviceconfig.user.Option;
 import org.duracloud.serviceconfig.user.SingleSelectUserConfig;
@@ -19,12 +22,6 @@ import org.duracloud.serviceconfig.user.TextUserConfig;
 import org.duracloud.serviceconfig.user.UserConfig;
 import org.duracloud.serviceconfig.user.UserConfigMode;
 import org.duracloud.serviceconfig.user.UserConfigModeSet;
-
-import javax.servlet.http.HttpServletRequest;
-import java.util.Enumeration;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 
 
 public class ServiceInfoUtil {

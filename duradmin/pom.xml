@@ -285,7 +285,7 @@
     <dependency>
       <!-- this artifact is also defined below: org.apache.tomcat -->
       <groupId>javax.servlet</groupId>
-      <artifactId>servlet-api</artifactId>
+      <artifactId>javax.servlet-api</artifactId>
       <scope>provided</scope>
     </dependency>
     <dependency>
@@ -295,14 +295,25 @@
     </dependency>
     <dependency>
       <groupId>org.springframework</groupId>
+      <artifactId>spring-beans</artifactId>
+      <scope>compile</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework</groupId>
       <artifactId>spring-webmvc</artifactId>
       <scope>compile</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-test</artifactId>
+      <scope>test</scope>
     </dependency>
 
     <!--  for spring security  -->
     <dependency>
       <groupId>org.springframework.security</groupId>
-      <artifactId>spring-security-taglibs</artifactId>
+      <artifactId>spring-security-config</artifactId>
     </dependency>
     
     <dependency>
@@ -312,8 +323,12 @@
 
     <dependency>
       <groupId>org.springframework.security</groupId>
-      <artifactId>spring-security-core-tiger</artifactId>
-      <scope>runtime</scope>
+      <artifactId>spring-security-web</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework.security</groupId>
+      <artifactId>spring-security-taglibs</artifactId>
     </dependency>
 
     <dependency>
@@ -345,11 +360,11 @@
 
     <dependency>
       <groupId>org.springframework.webflow</groupId>
-      <artifactId>org.springframework.binding</artifactId>
+      <artifactId>spring-binding</artifactId>
     </dependency>
     <dependency>
       <groupId>org.springframework.webflow</groupId>
-      <artifactId>org.springframework.webflow</artifactId>
+      <artifactId>spring-webflow</artifactId>
     </dependency>
 
     <!-- for spring aop proxying -->
@@ -358,12 +373,6 @@
       <artifactId>cglib</artifactId>
       <version>2.2</version>
     </dependency>
-    <dependency>
-      <groupId>org.springframework</groupId>
-      <artifactId>spring-mock</artifactId>
-      <scope>test</scope>
-    </dependency>
-
     <!-- tiles -->
     <dependency>
       <groupId>org.apache.tiles</groupId>
@@ -373,12 +382,16 @@
       <groupId>org.apache.tiles</groupId>
       <artifactId>tiles-jsp</artifactId>
     </dependency>
+    
+    <!-- this artifact is also defined above: javax.servlet -->
+    <!--
     <dependency>
-      <!-- this artifact is also defined above: javax.servlet -->
+      
       <groupId>org.apache.tomcat</groupId>
       <artifactId>servlet-api</artifactId>
       <scope>provided</scope>
     </dependency>
+     -->
 
     <!-- for Jstl -->
     <dependency>
@@ -502,7 +515,15 @@
       <version>1.7</version>
     </dependency>
 
+    <dependency>
+      <groupId>javax.validation</groupId>
+      <artifactId>validation-api</artifactId>
+    </dependency>
 
+    <dependency>
+      <groupId>org.hibernate</groupId>
+      <artifactId>hibernate-validator</artifactId>
+    </dependency>
     <!-- test -->
     <dependency>
       <groupId>org.duracloud</groupId>

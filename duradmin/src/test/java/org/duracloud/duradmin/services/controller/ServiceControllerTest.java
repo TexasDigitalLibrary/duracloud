@@ -7,20 +7,20 @@
  */
 package org.duracloud.duradmin.services.controller;
 
-import org.easymock.EasyMock;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import static org.duracloud.services.ComputeService.SYSTEM_PREFIX;
 
-import org.duracloud.serviceapi.ServicesManager;
-import org.springframework.web.servlet.ModelAndView;
-
-import javax.servlet.http.HttpServletRequest;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import static org.duracloud.services.ComputeService.SYSTEM_PREFIX;
+import javax.servlet.http.HttpServletRequest;
+
+import org.duracloud.serviceapi.ServicesManager;
+import org.easymock.EasyMock;
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
+import org.springframework.web.servlet.ModelAndView;
 
 public class ServiceControllerTest {
 
@@ -28,7 +28,6 @@ public class ServiceControllerTest {
 
     @Before
     public void setUp() throws Exception {
-        controller = new ServiceController();
     }
 
     @Test
@@ -49,11 +48,11 @@ public class ServiceControllerTest {
                                                         EasyMock.anyInt()))
             .andReturn(props);
         
-        controller.setServicesManager(manager);
+        controller = new ServiceController(manager);
 
         EasyMock.replay(manager, request);
 
-        ModelAndView mav = controller.handleRequest(request, null);
+        ModelAndView mav = controller.get(request, null);
 
         EasyMock.verify(manager, request);
 

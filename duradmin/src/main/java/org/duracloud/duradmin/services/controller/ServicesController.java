@@ -16,30 +16,32 @@ import org.duracloud.serviceapi.ServicesManager;
 import org.duracloud.serviceconfig.ServiceInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.stereotype.Controller;
+import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.servlet.ModelAndView;
-import org.springframework.web.servlet.mvc.Controller;
 
 /**
  * 
  * @author Daniel Bernstein
  *
  */
-public class ServicesController implements Controller {
+@Controller
+public class ServicesController {
 
     protected final Logger log = LoggerFactory.getLogger(ServicesController.class);
     
 	private ServicesManager servicesManager;
-    
-	public ServicesManager getServicesManager() {
-		return servicesManager;
-	}
 
-	public void setServicesManager(ServicesManager servicesManager) {
-		this.servicesManager = servicesManager;
-	}
+    @Autowired
+    public ServicesController(
+        @Qualifier("servicesManager") ServicesManager servicesManager) {
+        this.servicesManager = servicesManager;
+    }
 
-    
-	public ModelAndView handleRequest(HttpServletRequest request,
+    @RequestMapping("/services")
+	public ModelAndView getServices(HttpServletRequest request,
 			HttpServletResponse response) throws Exception {
 		
 		if("json".equals(request.getParameter("f"))){

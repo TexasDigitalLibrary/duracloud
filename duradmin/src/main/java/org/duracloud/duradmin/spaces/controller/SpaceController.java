@@ -8,6 +8,17 @@
 
 package org.duracloud.duradmin.spaces.controller;
 
+import java.io.InputStream;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+
+import javax.servlet.ServletContext;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import javax.validation.Valid;
+
 import org.apache.commons.httpclient.HttpStatus;
 import org.duracloud.client.ContentStore;
 import org.duracloud.client.ContentStoreManager;
@@ -16,11 +27,9 @@ import org.duracloud.common.error.DuraCloudRuntimeException;
 import org.duracloud.common.model.AclType;
 import org.duracloud.common.util.ExtendedIteratorCounterThread;
 import org.duracloud.common.util.IOUtil;
-import org.duracloud.controller.AbstractRestController;
 import org.duracloud.domain.Content;
 import org.duracloud.duradmin.domain.Space;
 import org.duracloud.duradmin.domain.SpaceProperties;
-import org.duracloud.duradmin.util.PropertiesUtils;
 import org.duracloud.duradmin.util.ServiceUtil;
 import org.duracloud.duradmin.util.SpaceUtil;
 import org.duracloud.error.ContentStoreException;
@@ -34,29 +43,24 @@ import org.duracloud.serviceapi.error.ServicesException;
 import org.duracloud.serviceconfig.ServiceInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.security.Authentication;
-import org.springframework.security.context.SecurityContextHolder;
-import org.springframework.util.StringUtils;
-import org.springframework.validation.BindException;
-import org.springframework.validation.Errors;
-import org.springframework.validation.Validator;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.stereotype.Controller;
+import org.springframework.validation.BindingResult;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.servlet.ModelAndView;
-
-import javax.servlet.ServletContext;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-import java.io.InputStream;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
 
 /**
  * 
  * @author Daniel Bernstein
  *
  */
-public class SpaceController extends  AbstractRestController<Space> {
+@Controller
+@RequestMapping("/spaces/space")
+public class SpaceController {
 
     protected final Logger log = LoggerFactory.getLogger(getClass());
 
@@ -66,51 +70,24 @@ public class SpaceController extends  AbstractRestController<Space> {
     private String bitIntegrityResultsContentId;
 
     private String adminSpaceId;
-	
-	public SpaceController(String adminSpaceId, String bitIntegrityResultsContentId){
-		super(null);
-		this.adminSpaceId = adminSpaceId;
-		this.bitIntegrityResultsContentId = bitIntegrityResultsContentId;
-		
-		setValidator(new Validator(){
-			@SuppressWarnings("unchecked")
-			@Override
-			public boolean supports(Class clazz) {
-				return clazz == Space.class;
-			}
-			
-			@Override
-			public void validate(Object target, Errors errors) {
-				Space command = (Space)target;
 
-		        if (!StringUtils.hasText(command.getStoreId())) {
-		            errors.rejectValue("storeId","required");
-		        }
-
-				if (!StringUtils.hasText(command.getSpaceId())) {
-		            errors.rejectValue("spaceId","required");
-		        }
-			}
-		});
-
-	}
+    @Autowired
+    public SpaceController(
+        @Qualifier("adminSpaceId") String adminSpaceId,
+        @Qualifier("bitIntegrityResultsContentId") String bitIntegrityResultsContentId,
+        @Qualifier("contentStoreManager") ContentStoreManager contentStoreManager, 
+        @Qualifier("servicesManager") ServicesManager servicesManager) {
+        this.adminSpaceId = adminSpaceId;
+        this.bitIntegrityResultsContentId = bitIntegrityResultsContentId;
+        this.contentStoreManager = contentStoreManager;
+        this.servicesManager = servicesManager;
+    }
     
-    public ContentStoreManager getContentStoreManager() {
-		return contentStoreManager;
-	}
 
-	public void setContentStoreManager(ContentStoreManager contentStoreManager) {
-		this.contentStoreManager = contentStoreManager;
-	}
-
-
-	
-	
-
-	@Override
-	protected ModelAndView get(HttpServletRequest request,
-			HttpServletResponse response, Space space,
-			BindException errors) throws Exception {
+	@RequestMapping(value = "", method = RequestMethod.GET)
+	public ModelAndView get(HttpServletRequest request,
+			HttpServletResponse response, @Valid Space space,
+			BindingResult result) throws Exception {
 		try{
 			String prefix = request.getParameter("prefix");
 			if(prefix != null){
@@ -270,10 +247,12 @@ public class SpaceController extends  AbstractRestController<Space> {
 	    return (Authentication)SecurityContextHolder.getContext().getAuthentication();
     }
 
-    protected ModelAndView post(HttpServletRequest request,
+	
+    @RequestMapping(value = "", method = RequestMethod.POST)
+    public ModelAndView addSpace(HttpServletRequest request,
                                 HttpServletResponse response,
-                                Space space,
-                                BindException errors) throws Exception {
+                                @Valid Space space,
+                                BindingResult result) throws Exception {
         String spaceId = space.getSpaceId();
         ContentStore contentStore = getContentStore(space);
         contentStore.createSpace(spaceId);
@@ -290,10 +269,11 @@ public class SpaceController extends  AbstractRestController<Space> {
         return createModel(space);
 	}
 
-	
-	protected ModelAndView delete(HttpServletRequest request,
+
+    @RequestMapping(value = "/delete", method = RequestMethod.POST)
+	public ModelAndView delete(HttpServletRequest request,
 			HttpServletResponse response, Space space,
-			BindException errors) throws Exception {
+			BindingResult result) throws Exception {
 		String spaceId = space.getSpaceId();
         ContentStore contentStore = getContentStore(space);
         contentStore.deleteSpace(spaceId);
@@ -307,14 +287,4 @@ public class SpaceController extends  AbstractRestController<Space> {
 	protected ContentStore getContentStore(Space space) throws ContentStoreException{
 		return contentStoreManager.getContentStore(space.getStoreId());
 	}
-
-    public ServicesManager getServicesManager() {
-        return servicesManager;
-    }
-
-    public void setServicesManager(ServicesManager servicesManager) {
-        this.servicesManager = servicesManager;
-    }
-
-
 }
