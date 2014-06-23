@@ -7,7 +7,6 @@
  */
 package org.duracloud.duradmin.control;
 
-import java.util.ArrayList;
 import java.util.List;
 
 import javax.servlet.http.HttpServletRequest;
@@ -28,63 +27,82 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.servlet.ModelAndView;
 
 /**
- * @author Andrew Woods
- *         Date: Apr 23, 2010
- * @deprecated This class may no longer be needed as the "Administration" tab
- *             is now read-only.
+ * @author Andrew Woods Date: Apr 23, 2010
+ * @deprecated This class may no longer be needed as the "Administration" tab is now read-only.
  */
 @Deprecated
 @Controller
-public class ManageSecurityUsersController  {
+public class ManageSecurityUsersController {
 
-    private final Logger log = LoggerFactory.getLogger(
-        ManageSecurityUsersController.class);
+    private final Logger log = LoggerFactory.getLogger(ManageSecurityUsersController.class);
 
     private DuracloudUserDetailsService userDetailsService;
 
     private PasswordEncoder passwordEncoder;
 
     @Autowired
-    public ManageSecurityUsersController(
-        DuracloudUserDetailsService userDetailsService,
-        PasswordEncoder passwordEncoder) {
+    public ManageSecurityUsersController(DuracloudUserDetailsService userDetailsService, PasswordEncoder passwordEncoder) {
         this.userDetailsService = userDetailsService;
         this.passwordEncoder = passwordEncoder;
     }
 
-    
-    @RequestMapping(value="/admin")
-    public ModelAndView handle(HttpServletRequest request,
-                                  HttpServletResponse response,
-                                  SecurityUserCommand cmd,
-                                  BindingResult result) throws Exception {
+    @RequestMapping(value = "/admin")
+    public ModelAndView handle(HttpServletRequest request, HttpServletResponse response, SecurityUserCommand cmd, BindingResult result) throws Exception {
         cmd.setUsers(this.userDetailsService.getUsers());
         String verb = cmd.getVerb();
         String username = cmd.getUsername();
-        String password = passwordEncoder.encodePassword(cmd.getPassword(), null);
-        
+        String password = cmd.getPassword();
+        if (password.length() > 0) {
+            password = passwordEncoder.encodePassword(cmd.getPassword(), null);
+        }
+        String email = cmd.getEmail();
+        Boolean enabled = cmd.getEnabled();
+        Boolean accountNonExpired = cmd.getAccountNonExpired();
+        Boolean credentialsNonExpired = cmd.getCredentialsNonExpired();
+        Boolean accountNonLocked = cmd.getAccountNonLocked();
+        List<String> grantedAuthorities = cmd.getGrantedAuthorities();
+        List<String> groups = cmd.getGroups();
+
         if (verb.equalsIgnoreCase("add")) {
-            List<String> grants = new ArrayList<String>();
-            grants.add("ROLE_USER");
-            SecurityUserBean user = new SecurityUserBean(username,
-                                                         password,
-                                                         grants);
+            // default to adding new user as regular user if no grantedAuthorities are passed in
+            if (grantedAuthorities.size() == 0) {
+                grantedAuthorities.add("ROLE_USER");
+            }
+            SecurityUserBean user = new SecurityUserBean(username, password, email, enabled, accountNonExpired, credentialsNonExpired, accountNonLocked, grantedAuthorities, groups);
             cmd.addUser(user);
             log.info("added user {}", user.getUsername());
-            return saveAndReturnModel(cmd, user);
+            return saveAndReturnModel(cmd);
 
         } else if (verb.equalsIgnoreCase("remove")) {
             SecurityUserBean user = getUser(cmd);
             cmd.removeUser(user.getUsername());
             log.info("removed user {}", username);
-            return saveAndReturnModel(cmd, user);
+            return saveAndReturnModel(cmd);
 
         } else if (verb.equalsIgnoreCase("modify")) {
             SecurityUserBean user = getUser(cmd);
-            user.setPassword(password);
+            // only modify password, email, grantedAuthorities and groups if they were passed in
+            if (password.length() > 0) {
+                user.setPassword(password);
+            }
+            if (email.length() > 0) {
+                user.setEmail(email);
+            }
+            if (grantedAuthorities.size() > 0) {
+                user.setGrantedAuthorities(grantedAuthorities);
+            }
+            if (groups.size() > 0) {
+                user.setGroups(groups);
+            }
+            // will always re-enable an account when modified
+            user.setAccountNonExpired(accountNonExpired);
+            user.setCredentialsNonExpired(credentialsNonExpired);
+            user.setAccountNonLocked(accountNonLocked);
             log.info("updated password for user {}", username);
-            return saveAndReturnModel(cmd, user);
+            return saveAndReturnModel(cmd);
 
+        } else if (verb.equalsIgnoreCase("get")) {
+            return new ModelAndView("jsonView", "users", cmd.getUsers());
         } else {
             return new ModelAndView("admin-manager", "users", cmd.getUsers());
         }
@@ -99,12 +117,10 @@ public class ManageSecurityUsersController  {
         return null;
     }
 
-    private ModelAndView saveAndReturnModel(SecurityUserCommand cmd,
-                                            SecurityUserBean user)
-        throws Exception {
+    private ModelAndView saveAndReturnModel(SecurityUserCommand cmd) throws Exception {
         pushUpdates(cmd.getUsers());
-        user.setPassword("*********");
-        return new ModelAndView("jsonView", "user", user);
+        cmd.setPassword("*********");
+        return new ModelAndView("jsonView", "users", cmd.getUsers());
     }
 
     private void pushUpdates(List<SecurityUserBean> users) throws Exception {
@@ -117,12 +133,23 @@ public class ManageSecurityUsersController  {
         durastore.setSecurityUsers(users);
         log.debug("pushed updates to durastore");
 
+        // update duraboss
+        Application duraboss = getDuraBossApp();
+        duraboss.setSecurityUsers(users);
+        log.debug("pushed updates to duraboss");
     }
 
     private Application getDuraStoreApp() {
         String host = DuradminConfig.getDuraStoreHost();
         String port = DuradminConfig.getDuraStorePort();
         String ctxt = DuradminConfig.getDuraStoreContext();
+        return new Application(host, port, ctxt);
+    }
+
+    private Application getDuraBossApp() {
+        String host = DuradminConfig.getDuraBossHost();
+        String port = DuradminConfig.getDuraBossPort();
+        String ctxt = DuradminConfig.getDuraBossContext();
         return new Application(host, port, ctxt);
     }
 

@@ -173,4 +173,8 @@ public class SecurityUserBean {
     public List<String> getGroups() {
         return groups;
     }
+    
+    public void setGroups(List<String> groups) {
+        this.groups = groups;
+    }
 }
