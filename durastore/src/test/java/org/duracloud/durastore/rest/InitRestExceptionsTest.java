@@ -7,12 +7,14 @@
  */
 package org.duracloud.durastore.rest;
 
+import javax.ws.rs.core.Response;
+
+import org.apache.commons.dbcp.BasicDataSource;
+import org.duracloud.audit.reader.AuditLogReader;
 import org.duracloud.common.rest.RestUtil;
 import org.duracloud.storage.util.StorageProviderFactory;
 import org.junit.Before;
 import org.junit.Test;
-
-import javax.ws.rs.core.Response;
 
 /**
  * @author: Bill Branan
@@ -23,14 +25,18 @@ public class InitRestExceptionsTest {
     private InitRest initRest;
     private StorageProviderFactory storageProviderFactory;
     private RestUtil restUtil;
-
+    private BasicDataSource datasource;
+    private AuditLogReader auditLogReader;
+    private ManifestRest manifest;
     private RestExceptionsTestSupport support = new RestExceptionsTestSupport();
 
     @Before
     public void setUp() throws Exception {
         storageProviderFactory = support.createStorageProviderFactory();
+        auditLogReader = support.createAuditLogReader();
+        manifest = support.createManifestRest();
         restUtil = support.createRestUtil();
-        initRest = new InitRest(storageProviderFactory, restUtil);
+        initRest = new InitRest(storageProviderFactory, restUtil, datasource, auditLogReader, manifest);
     }
 
     @Test

@@ -12,7 +12,7 @@ package org.duracloud.common.queue;
  * @author Daniel Bernstein
  * 
  */
-public class TaskNotFoundException extends Exception {
+public class TaskNotFoundException extends TaskException {
 
     public TaskNotFoundException() {
         super();

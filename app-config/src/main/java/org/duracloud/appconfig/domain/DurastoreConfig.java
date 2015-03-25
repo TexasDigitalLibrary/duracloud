@@ -16,6 +16,7 @@ import java.util.Set;
 
 import org.duracloud.common.error.DuraCloudRuntimeException;
 import org.duracloud.storage.domain.AuditConfig;
+import org.duracloud.storage.domain.DatabaseConfig;
 import org.duracloud.storage.domain.DuraStoreInitConfig;
 import org.duracloud.storage.domain.StorageAccount;
 import org.duracloud.storage.domain.StorageProviderType;
@@ -38,6 +39,7 @@ public class DurastoreConfig extends BaseConfig implements AppConfig {
     // Audit
     protected static final String auditKey = "audit";
     protected static final String queueKey = "queue";
+    protected static final String logSpaceIdKey = "log-space-id";
 
     // Storage
     protected static final String storageAccountKey = "storage-acct";
@@ -56,11 +58,15 @@ public class DurastoreConfig extends BaseConfig implements AppConfig {
     protected static final String baseDirectoryKey = "base-directory";
     protected static final String resourceKey = "resource";
     protected static final String tempPathKey = "temp-path";
-    // Chronopolis
+
+    // Snapshot
+    protected static final String snapshotUserKey = "snapshot-user";
     protected static final String bridgeHostKey = "bridge-host";
     protected static final String bridgePortKey = "bridge-port";
     protected static final String bridgeUserKey = "bridge-user";
     protected static final String bridgePassKey = "bridge-pass";
+
+    private DatabaseConfig millDbConfig = new DatabaseConfig();
 
     private AuditConfig auditConfig = new AuditConfig();
 
@@ -82,6 +88,9 @@ public class DurastoreConfig extends BaseConfig implements AppConfig {
         } else if(key.startsWith(auditKey)) {
             String suffix = getSuffix(key);
             loadAudit(suffix, value);
+        }  else if(key.startsWith("mill.db")) {
+            String suffix = getSuffix(key);
+            loadDbConfig(millDbConfig, suffix, value);
         } else {
             String msg = "unknown key: " + key + " (" + value + ")";
             log.error(msg);
@@ -97,8 +106,12 @@ public class DurastoreConfig extends BaseConfig implements AppConfig {
             auditConfig.setAuditPassword(value);
         } else if (suffix.equalsIgnoreCase(queueKey)) {
             auditConfig.setAuditQueueName(value);
+        } else if (suffix.equalsIgnoreCase(logSpaceIdKey)) {
+            auditConfig.setAuditLogSpaceId(value);
         }
     }
+    
+
 
     private void loadStorageAcct(String key, String value) {
         String id = getPrefix(key);
@@ -147,6 +160,9 @@ public class DurastoreConfig extends BaseConfig implements AppConfig {
         } else if (suffix.equalsIgnoreCase(tempPathKey)) {
             acct.setOption(StorageAccount.OPTS.TEMP_PATH.name(), value);
 
+        } else if (suffix.equalsIgnoreCase(snapshotUserKey)) {
+            acct.setOption(StorageAccount.OPTS.SNAPSHOT_USER.name(), value);
+
         } else if (suffix.equalsIgnoreCase(bridgeHostKey)) {
             acct.setOption(StorageAccount.OPTS.BRIDGE_HOST.name(), value);
 
@@ -185,13 +201,21 @@ public class DurastoreConfig extends BaseConfig implements AppConfig {
 
     public String asXml() {
         boolean includeCredentials = true;
+        boolean includeOptions = true;
         DuraStoreInitConfig initConfig = new DuraStoreInitConfig();
         initConfig.setAuditConfig(getAuditConfig());
+        initConfig.setMillDbConfig(getMillDbConfig());
         List<StorageAccount> accounts = new ArrayList<>(getStorageAccounts());
         initConfig.setStorageAccounts(accounts);
-        return documentBinding.createXmlFrom(initConfig, includeCredentials);
+        return documentBinding.createXmlFrom(initConfig,
+                                             includeCredentials,
+                                             includeOptions);
     }
     
+    private DatabaseConfig getMillDbConfig() {
+        return this.millDbConfig;
+    }
+
     public String getInitResource() {
         return INIT_RESOURCE;
     }

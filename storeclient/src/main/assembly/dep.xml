@@ -1,4 +1,5 @@
 <assembly>
+  <id>assembly</id>
   <includeBaseDirectory>false</includeBaseDirectory>
   <formats>
     <format>zip</format>
@@ -36,7 +37,6 @@
         <exclude>org.springframework:spring-beans</exclude>
         <exclude>org.springframework:spring-context</exclude>
         <exclude>aopalliance:aopalliance</exclude>
-        <exclude>org.jdom:com.springsource.org.jdom</exclude>
         <exclude>commons-lang:commons-lang</exclude>
       </excludes>
     </dependencySet>

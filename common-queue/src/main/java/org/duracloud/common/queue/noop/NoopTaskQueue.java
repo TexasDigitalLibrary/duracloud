@@ -7,6 +7,7 @@
  */
 package org.duracloud.common.queue.noop;
 
+import org.duracloud.common.queue.TaskException;
 import org.duracloud.common.queue.TaskNotFoundException;
 import org.duracloud.common.queue.TaskQueue;
 import org.duracloud.common.queue.TimeoutException;
@@ -68,9 +69,21 @@ public class NoopTaskQueue implements TaskQueue {
     public Integer size() {
         return new Integer(0);
     }
+    
+    @Override
+    public Integer sizeIncludingInvisibleAndDelayed() {
+        return size();
+    }
 
     @Override
     public void requeue(Task task) {
     }
 
+    @Override
+    public void deleteTasks(Set<Task> tasks) throws TaskException {}
+    
+    @Override
+    public Set<Task> take(int maxTasks) throws TimeoutException {
+        throw new TimeoutException("not implemented");
+    }
 }

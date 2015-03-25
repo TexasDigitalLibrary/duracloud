@@ -9,9 +9,13 @@ package org.duracloud.client;
 
 import org.apache.commons.httpclient.Header;
 import org.apache.commons.httpclient.HttpStatus;
+import org.duracloud.common.constant.ManifestFormat;
 import org.duracloud.common.model.AclType;
+import org.duracloud.common.retry.ExceptionHandler;
+import org.duracloud.common.retry.Retriable;
+import org.duracloud.common.retry.Retrier;
+import org.duracloud.common.util.DateUtil.DateFormat;
 import org.duracloud.common.util.SerializationUtil;
-import org.duracloud.common.util.WaitUtil;
 import org.duracloud.common.web.EncodeUtil;
 import org.duracloud.common.web.RestHttpHelper;
 import org.duracloud.common.web.RestHttpHelper.HttpResponse;
@@ -21,8 +25,12 @@ import org.duracloud.error.ContentStateException;
 import org.duracloud.error.ContentStoreException;
 import org.duracloud.error.InvalidIdException;
 import org.duracloud.error.NotFoundException;
+import org.duracloud.error.NotImplementedException;
 import org.duracloud.error.UnauthorizedException;
 import org.duracloud.error.UnsupportedTaskException;
+import org.duracloud.reportdata.bitintegrity.BitIntegrityReport;
+import org.duracloud.reportdata.bitintegrity.BitIntegrityReportProperties;
+import org.duracloud.reportdata.bitintegrity.BitIntegrityReportResult;
 import org.duracloud.storage.domain.StorageProviderType;
 import org.duracloud.storage.provider.StorageProvider;
 import org.duracloud.storage.util.IdUtil;
@@ -35,6 +43,8 @@ import org.slf4j.LoggerFactory;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -48,7 +58,7 @@ import static org.duracloud.storage.provider.StorageProvider.PROPERTIES_SPACE_AC
  *
  * @author Bill Branan
  */
-public class ContentStoreImpl implements ContentStore{
+public class ContentStoreImpl implements ContentStore {
 
     private String storeId = null;
 
@@ -64,6 +74,8 @@ public class ContentStoreImpl implements ContentStore{
 
     private final Logger log =
         LoggerFactory.getLogger(ContentStoreImpl.class);
+
+    private ExceptionHandler retryExceptionHandler;
 
     /**
      * Creates a ContentStore. This ContentStore uses the default number of
@@ -81,6 +93,13 @@ public class ContentStoreImpl implements ContentStore{
         this.type = type;
         this.storeId = storeId;
         this.restHelper = restHelper;
+
+        this.retryExceptionHandler = new ExceptionHandler() {
+            @Override
+            public void handle(Exception ex) {
+                log.warn(ex.getMessage());
+            }
+        };
     }
 
     /**
@@ -95,6 +114,14 @@ public class ContentStoreImpl implements ContentStore{
         if(maxRetries >= 0) {
             this.maxRetries = maxRetries;
         }
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void setRetryExceptionHandler(ExceptionHandler retryExceptionHandler) {
+        this.retryExceptionHandler = retryExceptionHandler;
     }
 
     public String getBaseURL() {
@@ -188,36 +215,14 @@ public class ContentStoreImpl implements ContentStore{
         return url;
     }
 
-    /**
-     * An interface which defines a single method which will be retried on error
-     */
-    protected interface Retryable {
-        Object retry() throws ContentStoreException;
-    }
-
-    /**
-     * Provides a way to execute a variety of methods and allow a retry to
-     * occur on method failure.
-     *
-     * This method, along with the Retryable interface is an implementation
-     * of the command pattern.
-     *
-     * @param retryable
-     * @throws ContentStoreException
-     */
-    protected <T extends Object> T execute(Retryable retryable)
+    protected <T extends Object> T execute(Retriable retriable)
         throws ContentStoreException {
-        ContentStoreException lastException = null;
-        for(int i=0; i<=maxRetries; i++) {
-            try {
-                return (T)retryable.retry();
-            } catch (ContentStoreException e) {
-                lastException = e;
-                log.warn(e.getMessage());
-                WaitUtil.wait(i);
-            }
+        try {
+            Retrier retrier = new Retrier(maxRetries);
+            return retrier.execute(retriable, retryExceptionHandler);
+        } catch(Exception e) {
+            throw (ContentStoreException)e;
         }
-        throw lastException;
     }
 
     /**
@@ -225,7 +230,7 @@ public class ContentStoreImpl implements ContentStore{
      */
     @Override
     public List<String> getSpaces() throws ContentStoreException {
-        return execute(new Retryable() {
+        return execute(new Retriable() {
             @Override
             public List<String> retry() throws ContentStoreException {
                 // The actual method being executed
@@ -284,7 +289,7 @@ public class ContentStoreImpl implements ContentStore{
                                              final String prefix)
         throws ContentStoreException {
         final ContentStore store = this;
-        return execute(new Retryable() {
+        return execute(new Retriable() {
             @Override
             public Iterator<String> retry() throws ContentStoreException {
                 // The actual method being executed
@@ -302,7 +307,7 @@ public class ContentStoreImpl implements ContentStore{
                           final long maxResults,
                           final String marker)
         throws ContentStoreException {
-        return execute(new Retryable() {
+        return execute(new Retriable() {
             @Override
             public Space retry() throws ContentStoreException {
                 // The actual method being executed
@@ -358,7 +363,7 @@ public class ContentStoreImpl implements ContentStore{
     @Override
     public void createSpace(final String spaceId)
         throws ContentStoreException {
-        execute(new Retryable() {
+        execute(new Retriable() {
             @Override
             public Boolean retry() throws ContentStoreException {
                 // The actual method being executed
@@ -390,7 +395,7 @@ public class ContentStoreImpl implements ContentStore{
      */
     @Override
     public void deleteSpace(final String spaceId) throws ContentStoreException {
-        execute(new Retryable() {
+        execute(new Retriable() {
             @Override
             public Boolean retry() throws ContentStoreException {
                 // The actual method being executed
@@ -421,7 +426,7 @@ public class ContentStoreImpl implements ContentStore{
     @Override
     public Map<String, String> getSpaceProperties(final String spaceId)
         throws ContentStoreException {
-        return execute(new Retryable() {
+        return execute(new Retriable() {
             @Override
             public Map<String, String> retry() throws ContentStoreException {
                 // The actual method being executed
@@ -453,7 +458,7 @@ public class ContentStoreImpl implements ContentStore{
     @Override
     public Map<String, AclType> getSpaceACLs(final String spaceId)
         throws ContentStoreException {
-        return execute(new Retryable() {
+        return execute(new Retriable() {
             @Override
             public Map<String, AclType> retry() throws ContentStoreException {
                 // The actual method being executed
@@ -498,7 +503,7 @@ public class ContentStoreImpl implements ContentStore{
     public void setSpaceACLs(final String spaceId,
                              final Map<String, AclType> spaceACLs)
         throws ContentStoreException {
-        execute(new Retryable() {
+        execute(new Retriable() {
             @Override
             public Boolean retry() throws ContentStoreException {
                 // The actual method being executed
@@ -542,6 +547,15 @@ public class ContentStoreImpl implements ContentStore{
      * {@inheritDoc}
      */
     @Override
+    public boolean spaceExists(String spaceId) throws ContentStoreException {
+        List<String> spaces = getSpaces();
+        return spaces.contains(spaceId);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
     public String addContent(final String spaceId,
                              final String contentId,
                              final InputStream content,
@@ -550,7 +564,7 @@ public class ContentStoreImpl implements ContentStore{
                              final String contentChecksum,
                              final Map<String, String> contentProperties)
         throws ContentStoreException {
-        return execute(new Retryable() {
+        return execute(new Retriable() {
             @Override
             public String retry() throws ContentStoreException {
                 // The actual method being executed
@@ -627,7 +641,7 @@ public class ContentStoreImpl implements ContentStore{
                               final String destSpaceId,
                               final String destContentId)
         throws ContentStoreException {
-        return execute(new Retryable() {
+        return execute(new Retriable() {
             @Override
             public String retry() throws ContentStoreException {
                 // The actual method being executed
@@ -766,7 +780,7 @@ public class ContentStoreImpl implements ContentStore{
     @Override
     public Content getContent(final String spaceId, final String contentId)
         throws ContentStoreException {
-        return execute(new Retryable() {
+        return execute(new Retriable() {
             @Override
             public Content retry() throws ContentStoreException {
                 // The actual method being executed
@@ -804,7 +818,7 @@ public class ContentStoreImpl implements ContentStore{
     @Override
     public void deleteContent(final String spaceId, final String contentId)
         throws ContentStoreException {
-        execute(new Retryable() {
+        execute(new Retriable() {
             @Override
             public Boolean retry() throws ContentStoreException {
                 // The actual method being executed
@@ -838,7 +852,7 @@ public class ContentStoreImpl implements ContentStore{
                                      final String contentId,
                                      final Map<String, String> contentProperties)
         throws ContentStoreException {
-        execute(new Retryable() {
+        execute(new Retriable() {
             @Override
             public Boolean retry() throws ContentStoreException {
                 // The actual method being executed
@@ -877,7 +891,7 @@ public class ContentStoreImpl implements ContentStore{
     public Map<String, String> getContentProperties(final String spaceId,
                                                     final String contentId)
         throws ContentStoreException {
-        return execute(new Retryable() {
+        return execute(new Retriable() {
             @Override
             public Map<String, String> retry() throws ContentStoreException {
                 // The actual method being executed
@@ -905,6 +919,20 @@ public class ContentStoreImpl implements ContentStore{
         }
     }
 
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public boolean contentExists(String spaceId, String contentId)
+        throws ContentStoreException {
+        try {
+            doGetContentProperties(spaceId, contentId);
+            return true;
+        } catch(NotFoundException e) {
+            return false;
+        }
+    }
+
     private void checkResponse(HttpResponse response, int expectedCode)
         throws ContentStoreException {
         if (response == null) {
@@ -926,6 +954,8 @@ public class ContentStoreImpl implements ContentStore{
                 throw new InvalidIdException(errMsg);
             } else if (responseCode == HttpStatus.SC_UNAUTHORIZED) {
                 throw new UnauthorizedException(errMsg);
+            } else if (responseCode == HttpStatus.SC_NOT_IMPLEMENTED) {
+                throw new NotImplementedException(errMsg);
             } else if (responseCode == HttpStatus.SC_FORBIDDEN) {
                 throw new UnauthorizedException(
                     "User is not authorized to perform the requested function");
@@ -1034,7 +1064,7 @@ public class ContentStoreImpl implements ContentStore{
      */
     @Override
     public List<String> getSupportedTasks() throws ContentStoreException {
-        return execute(new Retryable() {
+        return execute(new Retriable() {
             @Override
             public List<String> retry() throws ContentStoreException {
                 // The actual method being executed
@@ -1066,7 +1096,7 @@ public class ContentStoreImpl implements ContentStore{
     public String performTask(final String taskName,
                               final String taskParameters)
         throws ContentStoreException {
-        return execute(new Retryable() {
+        return execute(new Retriable() {
             @Override
             public String retry() throws ContentStoreException {
                 // The actual method being executed
@@ -1091,6 +1121,125 @@ public class ContentStoreImpl implements ContentStore{
             throw new ContentStoreException("Error performing task: " +
                                             taskName + e.getMessage(), e);
         }
+    }
+    
+    @Override
+    public InputStream
+        getManifest(String spaceId, ManifestFormat format)
+            throws ContentStoreException {
+            String task = "get manifest";
+            String url = buildManifestURL(spaceId,format);
+            try {
+                HttpResponse response = restHelper.get(url);
+                checkResponse(response, HttpStatus.SC_OK);
+                return response.getResponseStream();
+            } catch(NotFoundException e) {
+                throw new NotFoundException(task, spaceId, e);
+            } catch(UnauthorizedException e) {
+                throw new UnauthorizedException(task, spaceId, e);
+            } catch (Exception e) {
+                throw new ContentStoreException(task, spaceId, e);
+            }
+    }
+
+    private String buildManifestURL(String spaceId, ManifestFormat format) {
+        String url = buildURL("/manifest/" + spaceId);
+        url = addStoreIdQueryParameter(url);
+
+        if (format != null) {
+            url += "&format=" + format.name();
+        }
+
+        return url;
+    }
+
+    @Override
+    public InputStream
+        getAuditLog(String spaceId)
+            throws ContentStoreException {
+            String task = "get manifest";
+            String url = buildAuditLogURL(spaceId);
+            try {
+                HttpResponse response = restHelper.get(url);
+                checkResponse(response, HttpStatus.SC_OK);
+                return response.getResponseStream();
+            } catch(NotFoundException e) {
+                throw new NotFoundException(task, spaceId, e);
+            } catch(UnauthorizedException e) {
+                throw new UnauthorizedException(task, spaceId, e);
+            } catch (Exception e) {
+                throw new ContentStoreException(task, spaceId, e);
+            }
+    }
+    
+    private String buildAuditLogURL(String spaceId) {
+        String url = buildURL("/audit/" + spaceId);
+        url = addStoreIdQueryParameter(url);
+        return url;
+    }
+
+    @Override
+    public BitIntegrityReport getBitIntegrityReport(String spaceId)
+        throws ContentStoreException {
+        String task = "get bit integrity report";
+        String url = buildBitIntegrityReportURL(spaceId);
+        try {
+            HttpResponse response = restHelper.get(url);
+            checkResponse(response, HttpStatus.SC_OK);
+            BitIntegrityReportProperties properties =
+                extractBitIntegrityProperties(response);
+            BitIntegrityReport report =
+                new BitIntegrityReport(response.getResponseStream(), properties);
+            return report;
+        } catch (UnauthorizedException e) {
+            throw new UnauthorizedException(task, spaceId, e);
+        } catch (Exception e) {
+            throw new ContentStoreException(task, spaceId, e);
+        }
+    }
+
+    @Override
+    public BitIntegrityReportProperties
+        getBitIntegrityReportProperties(String spaceId)
+            throws ContentStoreException {
+        String task = "get bit integrity report properties";
+        String url = buildBitIntegrityReportURL(spaceId);
+        try {
+            HttpResponse response = restHelper.head(url);
+            checkResponse(response, HttpStatus.SC_OK);
+            return extractBitIntegrityProperties(response);
+        } catch (UnauthorizedException e) {
+            throw new UnauthorizedException(task, spaceId, e);
+        } catch (Exception e) {
+            throw new ContentStoreException(task, spaceId, e);
+        }
+    }
+
+    private String buildBitIntegrityReportURL(String spaceId) {
+        String url = buildURL("/bit-integrity/" + spaceId);
+        url = addStoreIdQueryParameter(url);
+        return url;
+    }
+
+    private BitIntegrityReportProperties
+        extractBitIntegrityProperties(HttpResponse response)
+            throws ParseException {
+        BitIntegrityReportProperties properties =
+            new BitIntegrityReportProperties();
+        for (Header header : response.getResponseHeaders()) {
+            String name = header.getName();
+            if (name.equals(HttpHeaders.BIT_INTEGRITY_REPORT_RESULT)) {
+                properties.setResult(BitIntegrityReportResult.valueOf(header.getValue()));
+            } else if (name.equals(HttpHeaders.BIT_INTEGRITY_REPORT_COMPLETION_DATE)) {
+                SimpleDateFormat format =
+                    new SimpleDateFormat(DateFormat.DEFAULT_FORMAT.getPattern());
+                properties.setCompletionDate(format.parse(header.getValue()));
+            } else if (name.equals(HttpHeaders.CONTENT_LENGTH)) {
+                properties.setSize(Integer.valueOf(header.getValue()));
+            }
+        }
+
+        return properties;
     }
 
 }

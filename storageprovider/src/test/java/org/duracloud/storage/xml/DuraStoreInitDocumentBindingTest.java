@@ -32,6 +32,12 @@ public class DuraStoreInitDocumentBindingTest {
     private String username = "username";
     private String password = "password";
     private String queueName = "queue";
+    private String logSpaceId = "auditlogspaceid";
+    private String millDbUsername ="millusername";
+    private String millDbPassword = "millpassword";
+    private String millDbHost = "millhost";
+    private int millDbPort = 3306;
+    private String millDbName = "milldbname";
 
     @Before
     public void setup() {
@@ -47,7 +53,7 @@ public class DuraStoreInitDocumentBindingTest {
 
         verifyDuraStoreInitConfig(initConfig);
 
-        String xmlVersion2 = binding.createXmlFrom(initConfig, true);
+        String xmlVersion2 = binding.createXmlFrom(initConfig, true, true);
         InputStream xmlStreamVersion2 =
             new ByteArrayInputStream(xmlVersion2.getBytes("UTF-8"));
         DuraStoreInitConfig initConfigVersion2 =
@@ -61,6 +67,7 @@ public class DuraStoreInitDocumentBindingTest {
         assertEquals(username, auditConfig.getAuditUsername());
         assertEquals(password, auditConfig.getAuditPassword());
         assertEquals(queueName, auditConfig.getAuditQueueName());
+        assertEquals(logSpaceId, auditConfig.getAuditLogSpaceId());
 
         List<StorageAccount> accounts = initConfig.getStorageAccounts();
         assertEquals(1, accounts.size());
@@ -75,6 +82,7 @@ public class DuraStoreInitDocumentBindingTest {
     private String createXml() {
         String encUser = encryptionUtil.encrypt(username);
         String encPass = encryptionUtil.encrypt(password);
+        String encMillDbPassword = encryptionUtil.encrypt(millDbPassword);
 
         StringBuilder acctXml = new StringBuilder();
         acctXml.append("<durastoreConfig>");
@@ -82,7 +90,16 @@ public class DuraStoreInitDocumentBindingTest {
         acctXml.append("    <auditUsername>" + encUser + "</auditUsername>");
         acctXml.append("    <auditPassword>" + encPass + "</auditPassword>");
         acctXml.append("    <auditQueue>" + queueName + "</auditQueue>");
+        acctXml.append("    <auditLogSpaceId>" + logSpaceId + "</auditLogSpaceId>");
         acctXml.append("  </storageAudit>");
+        acctXml.append("  <millDb>");
+        acctXml.append("    <username>" + millDbUsername + "</username>");
+        acctXml.append("    <password>" + encMillDbPassword + "</password>");
+        acctXml.append("    <host>" + millDbHost + "</host>");
+        acctXml.append("    <port>" + millDbPort + "</port>");
+        acctXml.append("    <name>" + millDbName + "</name>");
+
+        acctXml.append("  </millDb>");
         acctXml.append("  <storageProviderAccounts>");
         acctXml.append("    <storageAcct ownerId='0' isPrimary='true'>");
         acctXml.append("      <id>0</id>");

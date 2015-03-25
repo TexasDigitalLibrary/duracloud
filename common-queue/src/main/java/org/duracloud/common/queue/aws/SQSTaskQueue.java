@@ -7,8 +7,34 @@
  */
 package org.duracloud.common.queue.aws;
 
+import java.io.IOException;
+import java.io.StringReader;
+import java.io.StringWriter;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import java.util.Set;
+
+import org.apache.commons.lang3.time.DurationFormatUtils;
+import org.duracloud.common.queue.TaskException;
+import org.duracloud.common.queue.TaskNotFoundException;
+import org.duracloud.common.queue.TaskQueue;
+import org.duracloud.common.queue.TimeoutException;
+import org.duracloud.common.queue.task.Task;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.amazonaws.AmazonServiceException;
 import com.amazonaws.services.sqs.AmazonSQSClient;
+import com.amazonaws.services.sqs.model.BatchResultErrorEntry;
 import com.amazonaws.services.sqs.model.ChangeMessageVisibilityRequest;
+import com.amazonaws.services.sqs.model.DeleteMessageBatchRequest;
+import com.amazonaws.services.sqs.model.DeleteMessageBatchRequestEntry;
+import com.amazonaws.services.sqs.model.DeleteMessageBatchResult;
+import com.amazonaws.services.sqs.model.DeleteMessageBatchResultEntry;
 import com.amazonaws.services.sqs.model.DeleteMessageRequest;
 import com.amazonaws.services.sqs.model.GetQueueAttributesRequest;
 import com.amazonaws.services.sqs.model.GetQueueAttributesResult;
@@ -21,21 +47,6 @@ import com.amazonaws.services.sqs.model.ReceiveMessageResult;
 import com.amazonaws.services.sqs.model.SendMessageBatchRequest;
 import com.amazonaws.services.sqs.model.SendMessageBatchRequestEntry;
 import com.amazonaws.services.sqs.model.SendMessageRequest;
-import org.apache.commons.lang3.time.DurationFormatUtils;
-import org.duracloud.common.queue.TaskNotFoundException;
-import org.duracloud.common.queue.TaskQueue;
-import org.duracloud.common.queue.TimeoutException;
-import org.duracloud.common.queue.task.Task;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.io.IOException;
-import java.io.StringReader;
-import java.io.StringWriter;
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.Properties;
-import java.util.Set;
 
 /**
  * SQSTaskQueue acts as the interface for interacting with an Amazon
@@ -189,39 +200,48 @@ public class SQSTaskQueue implements TaskQueue {
     }
 
     @Override
-    public Task take() throws TimeoutException {
+    public Set<Task> take(int maxTasks) throws TimeoutException {
         ReceiveMessageResult result = sqsClient.receiveMessage(
             new ReceiveMessageRequest()
                 .withQueueUrl(queueUrl)
-                .withMaxNumberOfMessages(1)
+                .withMaxNumberOfMessages(maxTasks)
                 .withAttributeNames("SentTimestamp", "ApproximateReceiveCount"));
         if(result.getMessages() != null && result.getMessages().size() > 0) {
-            Message msg = result.getMessages().get(0);
+            Set<Task> tasks = new HashSet<>();
+            for(Message msg : result.getMessages()){
 
-            // The Amazon docs claim this attribute is 'returned as an integer
-            // representing the epoch time in milliseconds.'
-            // http://docs.aws.amazon.com/AWSSimpleQueueService/latest/APIReference/Query_QueryReceiveMessage.html
-            try {
-                Long sentTime = Long.parseLong(msg.getAttributes().get("SentTimestamp"));
-                Long preworkQueueTime = System.currentTimeMillis() - sentTime;
-                log.info("SQS message received - queue: {}, queueUrl: {}, msgId: {}," +
-                             " preworkQueueTime: {}, receiveCount: {}"
-                    , queueName, queueUrl, msg.getMessageId()
-                    , DurationFormatUtils.formatDuration(preworkQueueTime, "HH:mm:ss,SSS")
-                    , msg.getAttributes().get("ApproximateReceiveCount"));
-            } catch(NumberFormatException nfe) {
-                log.error("Error converting 'SentTimestamp' SQS message" +
-                              " attribute to Long, messageId: " +
-                              msg.getMessageId(), nfe);
+                // The Amazon docs claim this attribute is 'returned as an integer
+                // representing the epoch time in milliseconds.'
+                // http://docs.aws.amazon.com/AWSSimpleQueueService/latest/APIReference/Query_QueryReceiveMessage.html
+                try {
+                    Long sentTime = Long.parseLong(msg.getAttributes().get("SentTimestamp"));
+                    Long preworkQueueTime = System.currentTimeMillis() - sentTime;
+                    log.info("SQS message received - queue: {}, queueUrl: {}, msgId: {}," +
+                                 " preworkQueueTime: {}, receiveCount: {}"
+                        , queueName, queueUrl, msg.getMessageId()
+                        , DurationFormatUtils.formatDuration(preworkQueueTime, "HH:mm:ss,SSS")
+                        , msg.getAttributes().get("ApproximateReceiveCount"));
+                } catch(NumberFormatException nfe) {
+                    log.error("Error converting 'SentTimestamp' SQS message" +
+                                  " attribute to Long, messageId: " +
+                                  msg.getMessageId(), nfe);
+                }
+
+                Task task = marshallTask(msg);
+                task.setVisibilityTimeout(visibilityTimeout);
+                tasks.add(task);
             }
-
-            Task task = marshallTask(msg);
-            task.setVisibilityTimeout(visibilityTimeout);
-            return task;
-        } else {
+            
+            return tasks;
+         } else {
             throw new TimeoutException("No tasks available from queue: " +
                                            queueName + ", queueUrl: " + queueUrl);
         }
+    }
+    
+    @Override
+    public Task take() throws TimeoutException {
+        return take(1).iterator().next();
     }
 
     @Override
@@ -259,6 +279,48 @@ public class SQSTaskQueue implements TaskQueue {
         }
     }
     
+    @Override
+    public void deleteTasks(Set<Task> tasks) throws TaskException {
+        if(tasks.size() > 10) {
+            throw new IllegalArgumentException("task set must contain 10 or fewer tasks");
+        }
+        
+        try {
+            
+            List<DeleteMessageBatchRequestEntry> entries = new ArrayList<>(tasks.size());
+            
+            for(Task task : tasks){
+                DeleteMessageBatchRequestEntry entry =
+                    new DeleteMessageBatchRequestEntry().withId(task.getProperty(MsgProp.MSG_ID.name()))
+                                                        .withReceiptHandle(task.getProperty(MsgProp.RECEIPT_HANDLE.name()));
+                entries.add(entry);
+            }
+            
+            DeleteMessageBatchRequest request = new DeleteMessageBatchRequest()
+                                                        .withQueueUrl(queueUrl)
+                                                        .withEntries(entries);
+            DeleteMessageBatchResult result = sqsClient.deleteMessageBatch(request);
+            List<BatchResultErrorEntry> failed = result.getFailed();
+            if(failed != null && failed.size() > 0){
+                for(BatchResultErrorEntry error : failed){
+                    log.info("failed to delete message: " + error);
+                }
+            }
+            
+            for(DeleteMessageBatchResultEntry entry : result.getSuccessful()){
+                log.info("successfully deleted {}" , entry);
+            }
+
+        } catch(AmazonServiceException se) {
+            log.error(
+                    "failed to batch delete tasks " + tasks + ": " + se.getMessage(),
+                    se);
+
+            throw new TaskException(se);
+        }
+        
+    }
+    
     /* (non-Javadoc)
      * @see org.duracloud.queue.TaskQueue#requeue(org.duracloud.queue.task.Task)
      */
@@ -282,6 +344,24 @@ public class SQSTaskQueue implements TaskQueue {
         GetQueueAttributesResult result = queryQueueAttributes(QueueAttributeName.ApproximateNumberOfMessages);
         String sizeStr = result.getAttributes().get(QueueAttributeName.ApproximateNumberOfMessages.name());
         Integer size = Integer.parseInt(sizeStr);
+        return size;
+    }
+
+    @Override
+    public Integer sizeIncludingInvisibleAndDelayed() {
+        GetQueueAttributesResult result =
+            queryQueueAttributes(QueueAttributeName.ApproximateNumberOfMessages,
+                                 QueueAttributeName.ApproximateNumberOfMessagesNotVisible,
+                                 QueueAttributeName.ApproximateNumberOfMessagesDelayed);
+        Map<String,String> attributes = result.getAttributes();
+        int size = 0;
+        for(String attrKey : attributes.keySet()){
+            String value = attributes.get(attrKey);
+            log.debug("retrieved attribute: {}={}", attrKey, value);
+            int intValue = Integer.parseInt(value);
+            size += intValue;
+        }
+        log.debug("calculated size: {}", size);
         return size;
     }
 
