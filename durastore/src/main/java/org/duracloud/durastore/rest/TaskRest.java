@@ -7,17 +7,10 @@
  */
 package org.duracloud.durastore.rest;
 
-import org.duracloud.common.rest.RestUtil;
-import org.duracloud.common.util.IOUtil;
-import org.duracloud.common.util.SerializationUtil;
-import org.duracloud.durastore.util.TaskProviderFactory;
-import org.duracloud.storage.error.StorageStateException;
-import org.duracloud.storage.error.UnsupportedTaskException;
-import org.duracloud.storage.provider.TaskProvider;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
+import static javax.ws.rs.core.Response.Status.*;
+
+import java.io.InputStream;
+import java.util.List;
 
 import javax.ws.rs.GET;
 import javax.ws.rs.POST;
@@ -25,29 +18,39 @@ import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Response;
-import java.io.InputStream;
-import java.util.List;
 
-import static javax.ws.rs.core.Response.Status.BAD_REQUEST;
-import static javax.ws.rs.core.Response.Status.CONFLICT;
-import static javax.ws.rs.core.Response.Status.INTERNAL_SERVER_ERROR;
-
+import org.duracloud.StorageTaskConstants;
+import org.duracloud.common.rest.RestUtil;
+import org.duracloud.common.util.IOUtil;
+import org.duracloud.common.util.SerializationUtil;
+import org.duracloud.storage.error.StorageStateException;
+import org.duracloud.storage.error.UnsupportedTaskException;
+import org.duracloud.storage.provider.TaskProvider;
+import org.duracloud.storage.provider.TaskProviderFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.stereotype.Component;
 /**
  * Allows for calling storage provider specific tasks
  *
  * @author Bill Branan
  *         Date: May 20, 2010
  */
-@Path("/task")
+@Path(StorageTaskConstants.TASK_BASE_PATH)
 @Component
 public class TaskRest extends BaseRest {
+
     private final Logger log = LoggerFactory.getLogger(TaskRest.class);
 
     private TaskProviderFactory taskProviderFactory;
     private RestUtil restUtil;
 
     @Autowired
-    public TaskRest(TaskProviderFactory taskProviderFactory, RestUtil restUtil) {
+    
+    public TaskRest(@Qualifier("taskProviderFactory") TaskProviderFactory taskProviderFactory,
+                    RestUtil restUtil) {
         this.taskProviderFactory = taskProviderFactory;
         this.restUtil = restUtil;
     }

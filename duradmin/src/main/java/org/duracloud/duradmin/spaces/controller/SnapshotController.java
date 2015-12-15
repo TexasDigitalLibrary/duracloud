@@ -8,7 +8,9 @@
 
 package org.duracloud.duradmin.spaces.controller;
 
+import java.io.IOException;
 import java.io.InputStream;
+import java.io.PrintWriter;
 import java.util.List;
 import java.util.Properties;
 
@@ -16,16 +18,21 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
 import org.apache.commons.httpclient.HttpStatus;
+import org.codehaus.jackson.JsonFactory;
+import org.codehaus.jackson.JsonGenerator;
 import org.duracloud.client.ContentStore;
 import org.duracloud.client.ContentStoreManager;
 import org.duracloud.client.task.SnapshotTaskClient;
 import org.duracloud.client.task.SnapshotTaskClientManager;
 import org.duracloud.common.constant.Constants;
+import org.duracloud.common.model.RootUserCredential;
 import org.duracloud.error.ContentStoreException;
 import org.duracloud.security.DuracloudUserDetailsService;
 import org.duracloud.snapshot.dto.SnapshotContentItem;
+import org.duracloud.snapshot.dto.SnapshotHistoryItem;
 import org.duracloud.snapshot.dto.task.CreateSnapshotTaskResult;
 import org.duracloud.snapshot.dto.task.GetSnapshotContentsTaskResult;
+import org.duracloud.snapshot.dto.task.GetSnapshotHistoryTaskResult;
 import org.duracloud.snapshot.id.SnapshotIdentifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,6 +45,8 @@ import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.servlet.ModelAndView;
+
+import com.thoughtworks.xstream.io.json.JsonWriter;
 
 /**
  * 
@@ -91,9 +100,13 @@ public class SnapshotController {
     }
 
     protected String getUserEmail(String username) {
-        String userEmail = userDetailsService.getUserByUsername(username)
-            .getEmail();
-        return userEmail;
+        if(username.equals(RootUserCredential.getRootUsername())){
+            return RootUserCredential.getRootEmail();
+        }else{
+            String userEmail = userDetailsService.getUserByUsername(username)
+                .getEmail();
+            return userEmail;
+        }
     }
 
     protected String getUsername(HttpServletRequest request) {
@@ -153,6 +166,114 @@ public class SnapshotController {
         return getTaskClient(storeId)
                 .getSnapshot(snapshotId)
                 .serialize();
+    }
+    
+    @RequestMapping(value = "/spaces/snapshots/{storeId}/{snapshotId}/history", method = RequestMethod.GET)
+    public ModelAndView
+        getHistory(@PathVariable("storeId") String storeId,
+                    @PathVariable("snapshotId") String snapshotId,
+                    @RequestParam(value="page", required=false) Integer page,
+                    @RequestParam(value="attachment", required=false, defaultValue="false") Boolean attachment,
+                    HttpServletResponse response) {
+        try {
+            SnapshotTaskClient taskClient = getTaskClient(storeId);
+
+            if(attachment){
+                StringBuffer contentDisposition = new StringBuffer();
+                contentDisposition.append("attachment;");
+                contentDisposition.append("filename=\"");
+                contentDisposition.append(snapshotId+".history.json");
+                contentDisposition.append("\"");
+                response.setHeader("Content-Disposition", contentDisposition.toString());
+            }
+            
+            if(page == null){
+                page = 0;
+            }
+
+            streamSnapshotHistory(page, 
+                                        storeId,
+                                        snapshotId,
+                                        taskClient,
+                                        response);
+            return null;
+        } catch (Exception e) {
+            log.error(e.getMessage(), e);
+            throw new RuntimeException(e);
+        }
+    }
+
+    private void streamSnapshotHistory(int page,
+                                             String storeId,
+                                             String snapshotId,
+                                             SnapshotTaskClient taskClient, 
+                                             HttpServletResponse response) throws IOException, ContentStoreException{
+        PrintWriter writer = response.getWriter();
+        
+        int pageSize = 200;
+        if(page < 0){
+            pageSize = 1000;
+        }
+        
+        int pageCounter = page;
+        
+        JsonFactory factory = new JsonFactory();
+        JsonGenerator jwriter = factory.createJsonGenerator(writer);
+        jwriter.writeStartObject();
+        
+        jwriter.writeFieldName("historyItems");
+        jwriter.writeStartArray();
+        GetSnapshotHistoryTaskResult result = null;
+        while(true){
+            result = getSnapshotHistory(snapshotId, pageCounter, taskClient, pageSize);
+            List<SnapshotHistoryItem> items = result.getHistoryItems();
+            for(SnapshotHistoryItem item : items){
+                jwriter.writeStartObject();
+                jwriter.writeNumberField("historyDate", item.getHistoryDate().getTime());
+                jwriter.writeStringField("history",  item.getHistory());
+                jwriter.writeEndObject();
+            }
+
+            if(items.size() < pageSize || page >=0){
+                break;
+            }else{
+                pageCounter++;
+            }
+        }
+
+        jwriter.writeEndArray();
+        if(page >= 0){
+            jwriter.writeNumberField("page", page);
+            jwriter.writeNumberField("totalCount", result.getTotalCount());
+
+            if(result.getHistoryItems().size() == pageSize && (page+1*pageSize < result.getTotalCount())){
+                jwriter.writeNumberField("nextPage", page+1);
+            }else{
+                jwriter.writeNullField("nextPage");
+            }
+        }
+        
+        jwriter.writeStringField("snapshotId", snapshotId);
+        jwriter.writeStringField("storeId", storeId);
+        jwriter.writeEndObject();
+        jwriter.close();
+    }
+
+    protected GetSnapshotHistoryTaskResult
+              getSnapshotHistory(String snapshotId,
+                                 Integer page,
+                                 SnapshotTaskClient taskClient,
+                                 int pageSize) throws ContentStoreException {
+        GetSnapshotHistoryTaskResult result =
+            taskClient.getSnapshotHistory(snapshotId, page, pageSize);
+        List<SnapshotHistoryItem> items = result.getHistoryItems();
+        // Replace single quotes with double quotes in history values.
+        // This allows history values that are valid JSON (without escaping) to be
+        // provided as snapshot history updates, and be displayed properly.
+        for(SnapshotHistoryItem item : items) {
+            item.setHistory(item.getHistory().replaceAll("'", "\""));
+        }
+        return result;
     }
     
     @RequestMapping(value = "/spaces/snapshots/{storeId}/{snapshotId}/content", method = RequestMethod.GET)
@@ -256,6 +377,7 @@ public class SnapshotController {
                           @RequestParam String storeId,
                           @RequestParam String snapshotId) throws Exception {
         try {
+            
             String userEmail = getUserEmail(getUsername(request));
             return getTaskClient(storeId).restoreSnapshot(snapshotId, userEmail).serialize();
         } catch (Exception e) {
@@ -265,6 +387,21 @@ public class SnapshotController {
         
     }
 
+    @RequestMapping(value = "/spaces/restores/request", method = RequestMethod.POST)
+    @ResponseBody
+    public String requestRestore(HttpServletRequest request,
+                          @RequestParam String storeId,
+                          @RequestParam String snapshotId) throws Exception {
+        try {
+            
+            String userEmail = getUserEmail(getUsername(request));
+            return getTaskClient(storeId).requestRestoreSnapshot(snapshotId, userEmail).serialize();
+        } catch (Exception e) {
+            log.error(e.getMessage(), e);
+            throw new RuntimeException(e);
+        }
+        
+    }
     private boolean isSnapshotInProgress(ContentStore store, String spaceId) {
         try {
             return store.getSpaceProperties(spaceId)

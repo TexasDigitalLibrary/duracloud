@@ -7,13 +7,6 @@
  */
 package org.duracloud.appconfig.domain;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
 import org.duracloud.common.error.DuraCloudRuntimeException;
 import org.duracloud.storage.domain.AuditConfig;
 import org.duracloud.storage.domain.DatabaseConfig;
@@ -24,6 +17,13 @@ import org.duracloud.storage.domain.impl.StorageAccountImpl;
 import org.duracloud.storage.xml.DuraStoreInitDocumentBinding;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * This class holds the configuration elements for durastore.
@@ -40,6 +40,8 @@ public class DurastoreConfig extends BaseConfig implements AppConfig {
     protected static final String auditKey = "audit";
     protected static final String queueKey = "queue";
     protected static final String logSpaceIdKey = "log-space-id";
+    // Mill
+    protected static final String millDbKey = "mill.db";
 
     // Storage
     protected static final String storageAccountKey = "storage-acct";
@@ -50,7 +52,9 @@ public class DurastoreConfig extends BaseConfig implements AppConfig {
     protected static final String usernameKey = "username";
     protected static final String passwordKey = "password";
     // S3
-    protected static final String storageClassKey = "storage-class";
+    protected static final String cfAccountId = "cf-account-id";
+    protected static final String cfKeyId = "cf-key-id";
+    protected static final String cfKeyPath = "cf-key-path";
     // IRODS
     protected static final String zoneKey = "zone";
     protected static final String portKey = "port";
@@ -65,13 +69,13 @@ public class DurastoreConfig extends BaseConfig implements AppConfig {
     protected static final String bridgePortKey = "bridge-port";
     protected static final String bridgeUserKey = "bridge-user";
     protected static final String bridgePassKey = "bridge-pass";
+    protected static final String bridgeMemberIDKey = "bridge-member-id";
 
     private DatabaseConfig millDbConfig = new DatabaseConfig();
 
     private AuditConfig auditConfig = new AuditConfig();
 
-    private Map<String, StorageAccount> storageAccounts =
-        new HashMap<String, StorageAccount>();
+    private Map<String, StorageAccount> storageAccounts = new HashMap<>();
 
     private DuraStoreInitDocumentBinding documentBinding =
         new DuraStoreInitDocumentBinding();
@@ -88,7 +92,7 @@ public class DurastoreConfig extends BaseConfig implements AppConfig {
         } else if(key.startsWith(auditKey)) {
             String suffix = getSuffix(key);
             loadAudit(suffix, value);
-        }  else if(key.startsWith("mill.db")) {
+        }  else if(key.startsWith(millDbKey)) {
             String suffix = getSuffix(key);
             loadDbConfig(millDbConfig, suffix, value);
         } else {
@@ -110,8 +114,6 @@ public class DurastoreConfig extends BaseConfig implements AppConfig {
             auditConfig.setAuditLogSpaceId(value);
         }
     }
-    
-
 
     private void loadStorageAcct(String key, String value) {
         String id = getPrefix(key);
@@ -139,8 +141,14 @@ public class DurastoreConfig extends BaseConfig implements AppConfig {
         } else if (suffix.equalsIgnoreCase(passwordKey)) {
             acct.setPassword(value);
 
-        } else if (suffix.equalsIgnoreCase(storageClassKey)) {
-            acct.setOption(StorageAccount.OPTS.STORAGE_CLASS.name(), value);
+        } else if (suffix.equalsIgnoreCase(cfAccountId)) {
+            acct.setOption(StorageAccount.OPTS.CF_ACCOUNT_ID.name(), value);
+
+        } else if (suffix.equalsIgnoreCase(cfKeyId)) {
+            acct.setOption(StorageAccount.OPTS.CF_KEY_ID.name(), value);
+
+        } else if (suffix.equalsIgnoreCase(cfKeyPath)) {
+            acct.setOption(StorageAccount.OPTS.CF_KEY_PATH.name(), value);
 
         } else if (suffix.equalsIgnoreCase(zoneKey)) {
             acct.setOption(StorageAccount.OPTS.ZONE.name(), value);
@@ -175,6 +183,9 @@ public class DurastoreConfig extends BaseConfig implements AppConfig {
         } else if (suffix.equalsIgnoreCase(bridgePassKey)) {
             acct.setOption(StorageAccount.OPTS.BRIDGE_PASS.name(), value);
 
+        }else if (suffix.equalsIgnoreCase(bridgeMemberIDKey)) {
+            acct.setOption(StorageAccount.OPTS.BRIDGE_MEMBER_ID.name(), value);
+        
         } else {
             String msg = "unknown acct key: " + key + " (" + value + ")";
             log.error(msg);
@@ -188,12 +199,24 @@ public class DurastoreConfig extends BaseConfig implements AppConfig {
         return auditConfig;
     }
 
+    public void setAuditConfig(AuditConfig auditConfig) {
+        this.auditConfig = auditConfig;
+    }
+
+    public DatabaseConfig getMillDbConfig() {
+        return this.millDbConfig;
+    }
+
+    public void setMillDbConfig(DatabaseConfig millDbConfig) {
+        this.millDbConfig = millDbConfig;
+    }
+
     public Collection<StorageAccount> getStorageAccounts() {
         return storageAccounts.values();
     }
 
     public void setStorageAccounts(Set<StorageAccount> storageAccts) {
-        this.storageAccounts = new HashMap<String, StorageAccount>();
+        this.storageAccounts = new HashMap<>();
         for (StorageAccount storageAcct : storageAccts) {
             this.storageAccounts.put(storageAcct.getId(), storageAcct);
         }
@@ -210,10 +233,6 @@ public class DurastoreConfig extends BaseConfig implements AppConfig {
         return documentBinding.createXmlFrom(initConfig,
                                              includeCredentials,
                                              includeOptions);
-    }
-    
-    private DatabaseConfig getMillDbConfig() {
-        return this.millDbConfig;
     }
 
     public String getInitResource() {

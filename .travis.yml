@@ -1,13 +1,15 @@
 language: java
 jdk:
-  - oraclejdk7
+  - oraclejdk8
 notifications:
   email:
     recipients:
       - cibuilds@duracloud.org
     on_success: change
     on_failure: always
+  slack: duraspace:vOBySuKUwM95j2kfbwh0SNxq    
 install:
   - mvn install -DskipTests -DskipDeploy
 script:
   - mvn test -DskipIntTests
+sudo: false

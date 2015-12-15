@@ -12,6 +12,8 @@ import org.duracloud.error.ContentStoreException;
 import org.duracloud.snapshot.SnapshotConstants;
 import org.duracloud.snapshot.dto.task.CleanupSnapshotTaskParameters;
 import org.duracloud.snapshot.dto.task.CleanupSnapshotTaskResult;
+import org.duracloud.snapshot.dto.task.CompleteRestoreTaskParameters;
+import org.duracloud.snapshot.dto.task.CompleteRestoreTaskResult;
 import org.duracloud.snapshot.dto.task.CompleteSnapshotTaskParameters;
 import org.duracloud.snapshot.dto.task.CompleteSnapshotTaskResult;
 import org.duracloud.snapshot.dto.task.CreateSnapshotTaskParameters;
@@ -20,9 +22,12 @@ import org.duracloud.snapshot.dto.task.GetRestoreTaskParameters;
 import org.duracloud.snapshot.dto.task.GetRestoreTaskResult;
 import org.duracloud.snapshot.dto.task.GetSnapshotContentsTaskParameters;
 import org.duracloud.snapshot.dto.task.GetSnapshotContentsTaskResult;
+import org.duracloud.snapshot.dto.task.GetSnapshotHistoryTaskParameters;
+import org.duracloud.snapshot.dto.task.GetSnapshotHistoryTaskResult;
 import org.duracloud.snapshot.dto.task.GetSnapshotListTaskResult;
 import org.duracloud.snapshot.dto.task.GetSnapshotTaskParameters;
 import org.duracloud.snapshot.dto.task.GetSnapshotTaskResult;
+import org.duracloud.snapshot.dto.task.RequestRestoreSnapshotTaskResult;
 import org.duracloud.snapshot.dto.task.RestoreSnapshotTaskParameters;
 import org.duracloud.snapshot.dto.task.RestoreSnapshotTaskResult;
 
@@ -146,6 +151,24 @@ public class SnapshotTaskClientImpl implements SnapshotTaskClient {
 
         return GetSnapshotContentsTaskResult.deserialize(taskResult);
     }
+    
+    @Override
+    public GetSnapshotHistoryTaskResult getSnapshotHistory(String snapshotId,
+                                                           int pageNumber,
+                                                           int pageSize)
+        throws ContentStoreException {
+        GetSnapshotHistoryTaskParameters taskParams =
+                new GetSnapshotHistoryTaskParameters();
+        taskParams.setSnapshotId(snapshotId);
+        taskParams.setPageNumber(pageNumber);
+        taskParams.setPageSize(pageSize);
+
+        String taskResult = 
+            contentStore.performTask(SnapshotConstants.GET_SNAPSHOT_HISTORY_TASK_NAME,
+                                     taskParams.serialize());
+
+        return GetSnapshotHistoryTaskResult.deserialize(taskResult);
+    }
 
     /**
      * {@inheritDoc}
@@ -164,6 +187,41 @@ public class SnapshotTaskClientImpl implements SnapshotTaskClient {
                                      taskParams.serialize());
 
         return RestoreSnapshotTaskResult.deserialize(taskResult);
+    }
+    
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public RequestRestoreSnapshotTaskResult requestRestoreSnapshot(String snapshotId,
+                                                     String userEmail)
+        throws ContentStoreException {
+        RestoreSnapshotTaskParameters taskParams =
+            new RestoreSnapshotTaskParameters();
+        taskParams.setSnapshotId(snapshotId);
+        taskParams.setUserEmail(userEmail);
+
+        String taskResult =
+            contentStore.performTask(SnapshotConstants.REQUEST_RESTORE_SNAPSHOT_TASK_NAME,
+                                     taskParams.serialize());
+
+        return RequestRestoreSnapshotTaskResult.deserialize(taskResult);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    public CompleteRestoreTaskResult completeRestore(String spaceId,
+                                                     int daysToExpire)
+        throws ContentStoreException {
+        CompleteRestoreTaskParameters taskParams = new CompleteRestoreTaskParameters();
+        taskParams.setSpaceId(spaceId);
+        taskParams.setDaysToExpire(daysToExpire);
+
+        String taskResult =
+            contentStore.performTask(SnapshotConstants.COMPLETE_RESTORE_TASK_NAME,
+                                     taskParams.serialize());
+        return CompleteRestoreTaskResult.deserialize(taskResult);
     }
 
     /**

@@ -7,24 +7,8 @@
  */
 package org.duracloud.client.task;
 
-import org.duracloud.client.ContentStore;
-import org.duracloud.snapshot.SnapshotConstants;
-import org.duracloud.snapshot.dto.RestoreStatus;
-import org.duracloud.snapshot.dto.SnapshotContentItem;
-import org.duracloud.snapshot.dto.SnapshotStatus;
-import org.duracloud.snapshot.dto.SnapshotSummary;
-import org.duracloud.snapshot.dto.task.CleanupSnapshotTaskResult;
-import org.duracloud.snapshot.dto.task.CompleteSnapshotTaskResult;
-import org.duracloud.snapshot.dto.task.CreateSnapshotTaskResult;
-import org.duracloud.snapshot.dto.task.GetRestoreTaskResult;
-import org.duracloud.snapshot.dto.task.GetSnapshotContentsTaskResult;
-import org.duracloud.snapshot.dto.task.GetSnapshotListTaskResult;
-import org.duracloud.snapshot.dto.task.GetSnapshotTaskResult;
-import org.duracloud.snapshot.dto.task.RestoreSnapshotTaskResult;
-import org.easymock.EasyMock;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import static org.hamcrest.CoreMatchers.*;
+import static org.junit.Assert.*;
 
 import java.util.ArrayList;
 import java.util.Date;
@@ -32,8 +16,28 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import static org.hamcrest.CoreMatchers.equalTo;
-import static org.junit.Assert.assertThat;
+import org.duracloud.client.ContentStore;
+import org.duracloud.snapshot.SnapshotConstants;
+import org.duracloud.snapshot.dto.RestoreStatus;
+import org.duracloud.snapshot.dto.SnapshotContentItem;
+import org.duracloud.snapshot.dto.SnapshotHistoryItem;
+import org.duracloud.snapshot.dto.SnapshotStatus;
+import org.duracloud.snapshot.dto.SnapshotSummary;
+import org.duracloud.snapshot.dto.task.CleanupSnapshotTaskResult;
+import org.duracloud.snapshot.dto.task.CompleteRestoreTaskResult;
+import org.duracloud.snapshot.dto.task.CompleteSnapshotTaskResult;
+import org.duracloud.snapshot.dto.task.CreateSnapshotTaskResult;
+import org.duracloud.snapshot.dto.task.GetRestoreTaskResult;
+import org.duracloud.snapshot.dto.task.GetSnapshotContentsTaskResult;
+import org.duracloud.snapshot.dto.task.GetSnapshotHistoryTaskResult;
+import org.duracloud.snapshot.dto.task.GetSnapshotListTaskResult;
+import org.duracloud.snapshot.dto.task.GetSnapshotTaskResult;
+import org.duracloud.snapshot.dto.task.RequestRestoreSnapshotTaskResult;
+import org.duracloud.snapshot.dto.task.RestoreSnapshotTaskResult;
+import org.easymock.EasyMock;
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
 
 /**
  * @author Bill Branan
@@ -53,6 +57,7 @@ public class SnapshotTaskClientImplTest {
     private String host = "snapshot-host";
     private int port = 8080;
     private String storeId = "0";
+    private String memberId = "member-id";
     private int contentExpirationDays = 42;
     private String restoreId = "restore-id";
     private RestoreStatus restoreStatus = RestoreStatus.WAITING_FOR_DPN;
@@ -60,6 +65,8 @@ public class SnapshotTaskClientImplTest {
     private String propName = "prop-name";
     private String propValue = "prop-value";
     private String completionResult = "result";
+    private String historyValue = "history";
+    private int daysToExpire = 30;
 
     @Before
     public void setup() {
@@ -111,7 +118,7 @@ public class SnapshotTaskClientImplTest {
         preparedResult.setSourceSpaceId(spaceId);
         preparedResult.setSourceStoreId(storeId);
         preparedResult.setStatus(snapshotStatus);
-
+        preparedResult.setMemberId(memberId);
         setupMock(taskName, preparedResult.serialize());
         replayMocks();
 
@@ -123,6 +130,8 @@ public class SnapshotTaskClientImplTest {
         assertThat(spaceId, equalTo(result.getSourceSpaceId()));
         assertThat(storeId, equalTo(result.getSourceStoreId()));
         assertThat(snapshotStatus, equalTo(result.getStatus()));
+        assertThat(memberId, equalTo(result.getMemberId()));
+
     }
 
     @Test
@@ -161,7 +170,7 @@ public class SnapshotTaskClientImplTest {
 
         List<SnapshotSummary> summaries = new ArrayList<>();
         summaries.add(
-            new SnapshotSummary(snapshotId, snapshotStatus, description));
+            new SnapshotSummary(snapshotId, snapshotStatus, description, storeId,spaceId));
         GetSnapshotListTaskResult preparedResult =
             new GetSnapshotListTaskResult();
         preparedResult.setSnapshots(summaries);
@@ -175,6 +184,9 @@ public class SnapshotTaskClientImplTest {
         assertThat(snapshotId, equalTo(resultSummary.getSnapshotId()));
         assertThat(description, equalTo(resultSummary.getDescription()));
         assertThat(snapshotStatus, equalTo(resultSummary.getStatus()));
+        assertThat(storeId, equalTo(resultSummary.getSourceStoreId()));
+        assertThat(spaceId, equalTo(resultSummary.getSourceSpaceId()));
+
     }
 
     @Test
@@ -202,6 +214,29 @@ public class SnapshotTaskClientImplTest {
         assertThat(contentId, equalTo(item.getContentId()));
         assertThat(propValue, equalTo(item.getContentProperties().get(propName)));
     }
+    
+    @Test
+    public void testGetSnapshotHistory() throws Exception {
+        String taskName = SnapshotConstants.GET_SNAPSHOT_HISTORY_TASK_NAME;
+        
+        SnapshotHistoryItem historyItem = new SnapshotHistoryItem();
+        historyItem.setHistory(historyValue);
+        historyItem.setHistoryDate(snapshotDate);
+        List<SnapshotHistoryItem> historyItems = new ArrayList<>();
+        historyItems.add(historyItem);
+        
+        GetSnapshotHistoryTaskResult preparedResult = new GetSnapshotHistoryTaskResult();
+        preparedResult.setHistoryItems(historyItems);
+        
+        setupMock(taskName, preparedResult.serialize());
+        replayMocks();
+        
+        GetSnapshotHistoryTaskResult result =
+                taskClient.getSnapshotHistory(snapshotId, 1, 1000);
+        SnapshotHistoryItem item = result.getHistoryItems().get(0);
+        assertThat(historyValue, equalTo(item.getHistory()));
+        assertThat(snapshotDate, equalTo(item.getHistoryDate()));
+    }
 
     @Test
     public void testRestoreSnapshot() throws Exception {
@@ -221,6 +256,35 @@ public class SnapshotTaskClientImplTest {
         assertThat(restoreId, equalTo(result.getRestoreId()));
         assertThat(restoreStatus, equalTo(result.getStatus()));
     }
+    
+    @Test
+    public void testRequestRestoreSnapshot() throws Exception {
+        String taskName = SnapshotConstants.REQUEST_RESTORE_SNAPSHOT_TASK_NAME;
+
+        RequestRestoreSnapshotTaskResult preparedResult = new RequestRestoreSnapshotTaskResult();
+        preparedResult.setDescription("success");
+        setupMock(taskName, preparedResult.serialize());
+        replayMocks();
+
+        RequestRestoreSnapshotTaskResult result =
+            taskClient.requestRestoreSnapshot(snapshotId, userEmail);
+        assertThat("success", equalTo(result.getDescription()));
+    }
+
+    @Test
+    public void testCompleteRestore() throws Exception {
+        String taskName = SnapshotConstants.COMPLETE_RESTORE_TASK_NAME;
+
+        CompleteRestoreTaskResult preparedResult = new CompleteRestoreTaskResult();
+        preparedResult.setResult(completionResult);
+
+        setupMock(taskName, preparedResult.serialize());
+        replayMocks();
+
+        CompleteRestoreTaskResult result =
+            taskClient.completeRestore(spaceId, daysToExpire);
+        assertThat(completionResult, equalTo(result.getResult()));
+    }
 
     @Test
     public void testGetRestore() throws Exception {
@@ -233,6 +297,7 @@ public class SnapshotTaskClientImplTest {
         preparedResult.setDestinationSpaceId(spaceId);
         preparedResult.setDestinationStoreId(storeId);
         preparedResult.setEndDate(snapshotDate);
+        preparedResult.setExpirationDate(snapshotDate);
         preparedResult.setSnapshotId(snapshotId);
         preparedResult.setStartDate(snapshotDate);
         preparedResult.setStatus(restoreStatus);
@@ -248,6 +313,7 @@ public class SnapshotTaskClientImplTest {
         assertThat(spaceId, equalTo(result.getDestinationSpaceId()));
         assertThat(storeId, equalTo(result.getDestinationStoreId()));
         assertThat(snapshotDate, equalTo(result.getEndDate()));
+        assertThat(snapshotDate, equalTo(result.getExpirationDate()));
         assertThat(snapshotId, equalTo(result.getSnapshotId()));
         assertThat(snapshotDate, equalTo(result.getStartDate()));
         assertThat(restoreStatus, equalTo(result.getStatus()));

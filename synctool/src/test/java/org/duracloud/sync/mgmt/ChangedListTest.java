@@ -7,11 +7,11 @@
  */
 package org.duracloud.sync.mgmt;
 
-import static junit.framework.Assert.assertEquals;
-import static junit.framework.Assert.assertNull;
+import static junit.framework.Assert.*;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 import junit.framework.Assert;
@@ -39,6 +39,7 @@ public class ChangedListTest extends SyncTestBase {
     @After
     public void tearDown() throws Exception {
         super.tearDown();
+        changedList.clear();
         changedFile.delete();
     }
 
@@ -48,7 +49,7 @@ public class ChangedListTest extends SyncTestBase {
         changedList.addChangedFile(changedFile);
         assertEquals(version + 1, changedList.getVersion());
 
-        ChangedFile retrievedFile = changedList.getChangedFile();
+        ChangedFile retrievedFile = changedList.reserve();
         assertEquals(changedFile.getAbsolutePath(),
                      retrievedFile.getFile().getAbsolutePath());
         assertEquals(version + 2, changedList.getVersion());        
@@ -61,17 +62,75 @@ public class ChangedListTest extends SyncTestBase {
         File persistFile = File.createTempFile("persist", "file");
         changedList.persist(persistFile);
 
-        ChangedFile retrievedFile = changedList.getChangedFile();
+        ChangedFile retrievedFile = changedList.reserve();
+        
         assertEquals(changedFile.getAbsolutePath(),
                      retrievedFile.getFile().getAbsolutePath());
-        assertNull(changedList.getChangedFile());
+        assertNull(changedList.reserve());
 
-        changedList.restore(persistFile);
+        changedList.restore(persistFile, new ArrayList<File>());
 
-        retrievedFile = changedList.getChangedFile();
+        retrievedFile = changedList.reserve();
         assertEquals(changedFile.getAbsolutePath(),
                      retrievedFile.getFile().getAbsolutePath());
-        assertNull(changedList.getChangedFile());
+        assertNull(changedList.reserve());
+
+        persistFile.delete();
+    }
+
+    @Test
+    public void testReserveRestoreBeforeRemove() throws Exception {
+        changedList.addChangedFile(changedFile);
+        assertEquals(1, changedList.getListSize());
+        changedList.reserve();
+        File persistFile = File.createTempFile("persist", "file");
+        changedList.persist(persistFile);
+        changedList.restore(persistFile, new ArrayList<File>());
+        assertEquals(1, changedList.getListSize());
+        persistFile.delete();
+    }
+
+    @Test
+    public void testReserveRestoreAfterRemove() throws Exception {
+        changedList.addChangedFile(changedFile);
+        assertEquals(1, changedList.getListSize());
+        ChangedFile reserved = changedList.reserve();
+        reserved.remove();
+        File persistFile = File.createTempFile("persist", "file");
+        changedList.persist(persistFile);
+        changedList.restore(persistFile, new ArrayList<File>());
+        assertEquals(0, changedList.getListSize());
+        persistFile.delete();
+    }
+    
+    @Test
+    public void testReserveUnreserve() throws Exception {
+        changedList.addChangedFile(changedFile);
+        assertEquals(1, changedList.getListSize());
+        ChangedFile reserved = changedList.reserve();
+        assertEquals(0, changedList.getListSize());
+        reserved.unreserve();
+        assertEquals(1, changedList.getListSize());
+    }
+
+    @Test
+    public void testChangedListContainsFilesThatDoNotMatchContentDirs() throws Exception {
+        changedList.addChangedFile(changedFile);
+        File contentDir = new File(System.getProperty("java.io.tmp"), System.currentTimeMillis()+"");
+        assertTrue(contentDir.mkdir());
+        contentDir.deleteOnExit();
+        File persistFile = File.createTempFile("persist", "file");
+        changedList.persist(persistFile);
+
+        ChangedFile retrievedFile = changedList.reserve();
+        assertEquals(changedFile.getAbsolutePath(),
+                     retrievedFile.getFile().getAbsolutePath());
+        assertNull(changedList.reserve());
+
+        changedList.restore(persistFile, Arrays.asList(new File[]{contentDir}));
+
+        retrievedFile = changedList.reserve();
+        assertNull(changedList.reserve());
 
         persistFile.delete();
     }

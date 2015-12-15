@@ -92,6 +92,7 @@ public class SpaceUtil {
         spaceProperties.setSize(spaceProps.remove(ContentStore.SPACE_SIZE));
         spaceProperties.setTags(TagUtil.parseTags(spaceProps.remove(TagUtil.TAGS)));
         spaceProperties.setStreamingHost(spaceProps.get(ContentStore.STREAMING_HOST));
+        spaceProperties.setStreamingType(spaceProps.get(ContentStore.STREAMING_TYPE));
         spaceProperties.setSnapshotId(spaceProps.get(Constants.SNAPSHOT_ID_PROP));
 
         String restoreId = spaceProps.get(Constants.RESTORE_ID_PROP);
@@ -232,6 +233,11 @@ public class SpaceUtil {
     	        snapshotInProgress = isSnapshotInProgress(store,spaceId);
     	    }
         }
+
+        if(spaceId.equals(Constants.SNAPSHOT_METADATA_SPACE)){
+            return AclType.READ;
+        }
+
         
         if(snapshotInProgress){
             return AclType.READ;

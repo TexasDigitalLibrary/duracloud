@@ -15,7 +15,7 @@
 
 (function() {
 /**
- * ACL Editor: used for displaying and manipulating acls on a space.
+ * Displays information about a space that was restored from a snapshot.
  * created by Daniel Bernstein
  */
 $.widget("ui.restore",
@@ -57,6 +57,7 @@ $.widget("ui.restore",
                     data.push(["Status Message", restore.statusText]);
                     data.push(["Start Date", (restore.startDate ? new Date(restore.startDate).toString():"")]);
                     data.push(["End Date", (restore.endDate ? new Date(restore.endDate).toString():"")]);
+                    data.push(["Expiration Date", (restore.expirationDate ? new Date(restore.expirationDate).toString():"")]);
                     data.push(["Snaphshot ID", restore.snapshotId]);
                     
                     var table = dc.createTable(data);
@@ -66,10 +67,8 @@ $.widget("ui.restore",
                 .error(function( jqXHR, 
                                 textStatus, 
                                 errorThrown ) {
+                  dc.displayErrorDialog(jqXHR, SnapshotErrorMessage.UNAVAILABLE, null, false);
 
-                  dc.displayErrorDialog(jqXHR, 
-                                        "Unable to display restore.", 
-                                        errorThrown);
                 });
 
 

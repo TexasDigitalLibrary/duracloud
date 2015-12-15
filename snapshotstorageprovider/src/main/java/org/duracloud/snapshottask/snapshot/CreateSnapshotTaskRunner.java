@@ -45,17 +45,15 @@ import java.util.Properties;
  * @author: Bill Branan
  *          Date: 2/1/13
  */
-public class CreateSnapshotTaskRunner extends AbstractSnapshotTaskRunner {
+public class CreateSnapshotTaskRunner extends SpaceModifyingSnapshotTaskRunner {
 
     private Logger log = LoggerFactory.getLogger(CreateSnapshotTaskRunner.class);
 
-    private StorageProvider snapshotProvider;
-    private SnapshotStorageProvider unwrappedSnapshotProvider;
     private String dcAccountName;
     private String dcHost;
     private String dcPort;
     private String dcStoreId;
-    private String dcSnapshotUser;
+    private String bridgeMemberId;
 
     public CreateSnapshotTaskRunner(StorageProvider snapshotProvider,
                                     SnapshotStorageProvider unwrappedSnapshotProvider,
@@ -67,15 +65,20 @@ public class CreateSnapshotTaskRunner extends AbstractSnapshotTaskRunner {
                                     String bridgeAppHost,
                                     String bridgeAppPort,
                                     String bridgeAppUser,
-                                    String bridgeAppPass) {
-        super(bridgeAppHost, bridgeAppPort, bridgeAppUser, bridgeAppPass);
-        this.snapshotProvider = snapshotProvider;
-        this.unwrappedSnapshotProvider = unwrappedSnapshotProvider;
+                                    String bridgeAppPass, 
+                                    String bridgeMemberId) {
+        super(snapshotProvider,
+              unwrappedSnapshotProvider,
+              dcSnapshotUser,
+              bridgeAppHost,
+              bridgeAppPort,
+              bridgeAppUser,
+              bridgeAppPass);
         this.dcHost = dcHost;
         this.dcPort = dcPort;
         this.dcStoreId = dcStoreId;
         this.dcAccountName = dcAccountName;
-        this.dcSnapshotUser = dcSnapshotUser;
+        this.bridgeMemberId = bridgeMemberId;
     }
 
     @Override
@@ -88,9 +91,9 @@ public class CreateSnapshotTaskRunner extends AbstractSnapshotTaskRunner {
         log.info("Performing SNAPSHOT task with parameters, " +
                  "DuraCloud Host: {} DuraCloud Port: {} DuraCloud StoreID: {} " +
                  "Account Name: {} DuraCloud Snapshot User: {} Bridge Host: {} " +
-                 "Bridge Port: {} Bridge User: {}",
-                 dcHost, dcPort, dcStoreId, dcAccountName, dcSnapshotUser,
-                 getBridgeAppHost(), getBridgeAppPort(), getBridgeAppUser());
+                 "Bridge Port: {} Bridge User: {} Member Id: {}",
+                 dcHost, dcPort, dcStoreId, dcAccountName, getSnapshotUser(),
+                 getBridgeAppHost(), getBridgeAppPort(), getBridgeAppUser(), bridgeMemberId);
 
         // Get input params
         CreateSnapshotTaskParameters taskParams =
@@ -111,6 +114,7 @@ public class CreateSnapshotTaskRunner extends AbstractSnapshotTaskRunner {
         snapshotProps.put("owner-id", dcAccountName);
         snapshotProps.put("description", taskParams.getDescription());
         snapshotProps.put("user-email", taskParams.getUserEmail());
+        snapshotProps.put("member-id", bridgeMemberId);
 
         // Store snapshot properties in the snapshot space. This both provides
         // access to the properties down stream and effectively sets the space
@@ -168,59 +172,6 @@ public class CreateSnapshotTaskRunner extends AbstractSnapshotTaskRunner {
         return snapshotIdentifier.getSnapshotId();
     }
 
-    /*
-     * Adds a snapshot ID property to the space
-     */
-    protected void addSnapshotIdToSpaceProps(String spaceId, String snapshotId) {
-        Map<String, String> spaceProps =
-            snapshotProvider.getSpaceProperties(spaceId);
-        spaceProps.put(Constants.SNAPSHOT_ID_PROP, snapshotId);
-        unwrappedSnapshotProvider.setNewSpaceProperties(spaceId, spaceProps);
-    }
-
-    /*
-     * Removes the snapshot ID property from a space
-     */
-    protected void removeSnapshotIdFromSpaceProps(String spaceId) {
-        log.debug("Removing " + Constants.SNAPSHOT_ID_PROP +
-                  " property from space " + spaceId);
-        Map<String, String> spaceProps =
-            snapshotProvider.getSpaceProperties(spaceId);
-        if(spaceProps.remove(Constants.SNAPSHOT_ID_PROP) != null){
-            unwrappedSnapshotProvider.setNewSpaceProperties(spaceId, spaceProps);
-            log.info("Removed " + Constants.SNAPSHOT_ID_PROP +
-                     " from  space properties for space " + spaceId);
-        }else{
-            log.debug("Property " + Constants.SNAPSHOT_ID_PROP +
-                      " does not exist in space properties for " + spaceId +
-                      ". No need to update space properties.");
-        }
-    }
-    /*
-     * Give the snapshot user the necessary permissions to pull content from
-     * the snapshot space.
-     */
-    protected String setSnapshotUserPermissions(final String spaceId) {
-        try {
-            Retrier retrier = new Retrier();
-            return retrier.execute(new Retriable() {
-                @Override
-                public String retry() throws Exception {
-                    // The actual method being executed
-                    Map<String, AclType> spaceACLs =
-                        snapshotProvider.getSpaceACLs(spaceId);
-                    spaceACLs.put(StorageProvider.PROPERTIES_SPACE_ACL +
-                                  dcSnapshotUser, AclType.READ);
-                    snapshotProvider.setSpaceACLs(spaceId, spaceACLs);
-                    return spaceId;
-                }
-            });
-        } catch(Exception e) {
-            throw new TaskException("Unable to create snapshot, failed" +
-                                    "setting space permissions due to: " +
-                                    e.getMessage(), e);
-        }
-    }
 
     /*
      * Create URL to call bridge app
@@ -239,7 +190,8 @@ public class CreateSnapshotTaskRunner extends AbstractSnapshotTaskRunner {
             new CreateSnapshotBridgeParameters(dcHost, dcPort, dcStoreId,
                                                taskParams.getSpaceId(),
                                                taskParams.getDescription(),
-                                               taskParams.getUserEmail());
+                                               taskParams.getUserEmail(),
+                                               bridgeMemberId);
         return bridgeParams.serialize();
     }
 
@@ -265,38 +217,6 @@ public class CreateSnapshotTaskRunner extends AbstractSnapshotTaskRunner {
         }
         writer.flush();
         return writer.toString();
-    }
-
-    /**
-     * Stores a set of snapshot properties in the given space as a properties
-     * file.
-     *
-     * @param spaceId the space in which the properties file should be stored
-     * @param serializedProps properties in serialized format
-     */
-    protected void storeSnapshotProps(String spaceId, String serializedProps) {
-        InputStream propsStream;
-        try {
-            propsStream = IOUtil.writeStringToStream(serializedProps);
-        } catch(IOException e) {
-            throw new TaskException("Unable to build stream from serialized " +
-                                    "snapshot properties due to: " +
-                                    e.getMessage());
-        }
-        ChecksumUtil checksumUtil = new ChecksumUtil(ChecksumUtil.Algorithm.MD5);
-        String propsChecksum = checksumUtil.generateChecksum(serializedProps);
-
-        snapshotProvider.addContent(spaceId,
-                                    Constants.SNAPSHOT_PROPS_FILENAME,
-                                    "text/x-java-properties",
-                                    null,
-                                    serializedProps.length(),
-                                    propsChecksum,
-                                    propsStream);
-    }
-
-    protected void removeSnapshotProps(String spaceId) {
-        snapshotProvider.deleteContent(spaceId, Constants.SNAPSHOT_PROPS_FILENAME);
     }
 
     /*

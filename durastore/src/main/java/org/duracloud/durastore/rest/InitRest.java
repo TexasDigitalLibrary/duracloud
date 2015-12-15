@@ -16,7 +16,7 @@ import javax.ws.rs.POST;
 import javax.ws.rs.Path;
 import javax.ws.rs.core.Response;
 
-import org.apache.commons.dbcp.BasicDataSource;
+import org.apache.commons.dbcp2.BasicDataSource;
 import org.duracloud.audit.reader.AuditLogReader;
 import org.duracloud.common.rest.RestUtil;
 import org.duracloud.common.util.InitUtil;
@@ -99,12 +99,14 @@ public class InitRest extends BaseRest {
                                    dbConfig.getUsername() != null && 
                                    dbConfig.getPassword() != null;
         if(millDbConfigured){
-            datasource.setUrl(MessageFormat.format("jdbc:mysql://{0}:{1}/{2}?autoReconnect=true",
+            datasource.setUrl(MessageFormat.format("jdbc:mysql://{0}:{1}/{2}",
                                                    dbConfig.getHost(),
                                                    dbConfig.getPort()+"",
                                                    dbConfig.getName()));
             datasource.setUsername(dbConfig.getUsername());
             datasource.setPassword(dbConfig.getPassword());
+            datasource.setTestOnBorrow(true);
+            datasource.setValidationQuery("SELECT 1");
         }
         
         manifestRest.setEnabled(millDbConfigured);

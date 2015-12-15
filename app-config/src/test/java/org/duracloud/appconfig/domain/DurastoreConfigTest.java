@@ -22,10 +22,10 @@ import static org.duracloud.storage.domain.StorageAccount.OPTS.BRIDGE_HOST;
 import static org.duracloud.storage.domain.StorageAccount.OPTS.BRIDGE_PASS;
 import static org.duracloud.storage.domain.StorageAccount.OPTS.BRIDGE_PORT;
 import static org.duracloud.storage.domain.StorageAccount.OPTS.BRIDGE_USER;
+import static org.duracloud.storage.domain.StorageAccount.OPTS.BRIDGE_MEMBER_ID;
 import static org.duracloud.storage.domain.StorageAccount.OPTS.HOST;
 import static org.duracloud.storage.domain.StorageAccount.OPTS.PORT;
 import static org.duracloud.storage.domain.StorageAccount.OPTS.RESOURCE;
-import static org.duracloud.storage.domain.StorageAccount.OPTS.STORAGE_CLASS;
 import static org.duracloud.storage.domain.StorageAccount.OPTS.ZONE;
 
 /**
@@ -46,7 +46,6 @@ public class DurastoreConfigTest {
     private String[] usernames = {"username0", "username1", "username2", "username3"};
     private String[] passwords = {"password0", "password1", "password2", "password3"};
 
-    private String storageClass = "storageclass";
     private String zone = "zone";
     private String host = "host";
     private String port = "port";
@@ -57,7 +56,7 @@ public class DurastoreConfigTest {
     private String bridgePort = "bridgeport";
     private String bridgeUser = "bridgeuser";
     private String bridgePass = "bridgepass";
-
+    private String bridgeMemberId = "bridge-member-id";
     @Test
     public void testLoad() {
         DurastoreConfig config = new DurastoreConfig();
@@ -82,7 +81,7 @@ public class DurastoreConfigTest {
             props.put(p + DurastoreConfig.providerTypeKey, types[i]);
 
             if (types[i] == StorageProviderType.AMAZON_S3.toString()) {
-                props.put(p + DurastoreConfig.storageClassKey, storageClass);
+                // no special options
             } else if (types[i] == StorageProviderType.IRODS.toString()) {
                 props.put(p + DurastoreConfig.zoneKey, zone);
                 props.put(p + DurastoreConfig.hostKey, host);
@@ -95,6 +94,8 @@ public class DurastoreConfigTest {
                 props.put(p + DurastoreConfig.bridgePortKey, bridgePort);
                 props.put(p + DurastoreConfig.bridgeUserKey, bridgeUser);
                 props.put(p + DurastoreConfig.bridgePassKey, bridgePass);
+                props.put(p + DurastoreConfig.bridgeMemberIDKey, bridgeMemberId);
+
             }
         }
         return props;
@@ -142,8 +143,7 @@ public class DurastoreConfigTest {
         Assert.assertNotNull(options);
 
         if (type == StorageProviderType.AMAZON_S3) {
-            Assert.assertEquals(storageClass,
-                                options.get(STORAGE_CLASS.name()));
+            // No S3 options
 
         } else if (type == StorageProviderType.IRODS) {
             Assert.assertEquals(zone, options.get(ZONE.name()));
@@ -159,6 +159,8 @@ public class DurastoreConfigTest {
             Assert.assertEquals(bridgePort, options.get(BRIDGE_PORT.name()));
             Assert.assertEquals(bridgeUser, options.get(BRIDGE_USER.name()));
             Assert.assertEquals(bridgePass, options.get(BRIDGE_PASS.name()));
+            Assert.assertEquals(bridgeMemberId, options.get(BRIDGE_MEMBER_ID.name()));
+
         } else {
             Assert.assertEquals(0, options.size());
         }

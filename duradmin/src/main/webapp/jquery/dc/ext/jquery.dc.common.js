@@ -57,20 +57,30 @@ $(function(){
 			}
 		};
 		
-		dc.checkSession = function(data){
-			if(data != undefined && data != null){
-				if(data.toString().indexOf("loginForm") > -1){
-					alert("Your session has timed out.");
-					window.location.reload();
-				}
-			}
-		};
-		
-		dc.displayErrorDialog = function(xhr, textStatus, errorThrown){
+    dc.checkSession = function(data){
+      if(data != undefined && data != null){
+        if(data.responseText){
+          data = data.responseText;
+        }
+        if(data.toString().indexOf("loginForm") > -1){
+          alert("Your session has timed out.");
+          window.location.reload();
+        }
+      }
+    };
+
+		dc.displayErrorDialog = function(xhr, textStatus, errorThrown, showStackTrace){
 			var errorText = xhr.responseText;
+	
+			
 			if(!textStatus){
 			    textStatus = "An unexpected error occurred:";
 			}
+			
+			if(showStackTrace == undefined || showStackTrace == null){
+			  showStackTrace = true;
+			}
+			
 			try{
 				var response = $.parseJSON(errorText);
 				errorText = "cause: " + response['exception.message'];
@@ -79,38 +89,62 @@ $(function(){
 				
 			}
 
+      dc.error("error: " + 
+               errorThrown + 
+               "; response=" + 
+               errorText);
+
+	     var options = {
+	                    autoOpen: true,
+	                    show: 'fade',
+	                    hide: 'fade',
+	                    width:500,
+	                    resizable: true,
+	                    closeOnEscape:true,
+	                    modal: true,
+	                    buttons: {
+	                      "Close": function(){
+	                        $(this).dialog("close");
+	                        errorDialog.empty();
+	                      },
+	                    },
+	                  };
+	                  
+
 			var errorDialog = $.fn.create("div");
+			
 			$(document).append(errorDialog);
-			errorDialog.append("<h1>"+textStatus+"</h1><div><button>Show Details</button><div class='error-detail' style='overflow:auto;height:200px;display:none'><pre>"+errorText+"</pre></div>");
-			errorDialog.find("button").click(function(){
-			   errorDialog.find(".error-detail").show(); 
-			});
+			errorDialog.append("<h2>"+textStatus+"</h2>");
 			
+      if(showStackTrace){
+        
+        errorDialog.append("<div><button>Show Details</button>" +
+                           "<div class='error-detail' style='overflow:auto;height:200px;display:none'>" +
+                           "<pre>"+errorText+"</pre></div>");
+        
+        errorDialog.find("button").click(function(){
+          errorDialog.find(".error-detail").show(); 
+        });
+
+        options = $.extend(options, {
+          height: 350
+        });
+      }
+
 			
-			errorDialog.dialog({
-				autoOpen: true,
-				show: 'fade',
-				hide: 'fade',
-				resizable: true,
-				height: 350,
-				width:500,
-				closeOnEscape:true,
-				modal: true,
-				buttons: {
-					"Close": function(){
-						$(this).dialog("close");
-						errorDialog.empty();
-					},
-				},
-			});
+			errorDialog.dialog(options);
 		};
 
 		
 		dc.ajax2 = function(settings){
 		    return $.ajax(settings)
-		            .done(function(data){
-	                    dc.checkSession(data);
-	                });
+                  .error(function(data){
+                    dc.checkSession(data);
+                  })
+                  .done(function(data) {
+                    dc.checkSession(data);
+                  });
+
 		};
 		
 		dc.ajax = function(innerCallback, outerCallback){
@@ -286,7 +320,11 @@ $(function(){
 		
 		var spNameMap = {};
 		spNameMap["AMAZON_S3"] = "Amazon S3";
+		spNameMap["AMAZON_GLACIER"] = "Amazon Glacier";
 		spNameMap["RACKSPACE"] = "Rackspace";
+		spNameMap["SDSC"] = "SDSC";
+		spNameMap["SNAPSHOT"] = "Snapshot";
+		spNameMap["IRODS"] = "iRODS";
 		dc.STORAGE_PROVIDER_KEY_MAP = spNameMap;
 
 		
@@ -299,7 +337,7 @@ $(function(){
 				showUnits = true;
 			}
 			
-			value = new Number(value/(1024*1024*1024));
+			value = new Number(value/(1000*1000*1000));
 			value =  value.toFixed(parseInt(decimalplaces));
 			
 			if(showUnits){
@@ -544,11 +582,11 @@ $(function(){
             bytes = new Number(bytes);
             var bytesValue = bytes + " bytes";
             
-            if(bytes < 1024){
+            if(bytes < 1000){
                 return bytesValue;
-            }else if(bytes < 1024*1000){
+            }else if(bytes < 1000*1000){
                val = (bytes/1000).toFixed(1) + " KB";
-            }else if(bytes < 1024*1000*1000){
+            }else if(bytes < 1000*1000*1000){
                 val = (bytes/(1000*1000)).toFixed(1) + " MB";
             }else{
                 val = (bytes/(1000*1000*1000)).toFixed(1) + " GB";
@@ -559,6 +597,30 @@ $(function(){
             }
             return val;
         };
+        
+  
+        dc.hexEncode = function(val) {
+          var hex, i;
+    
+          var result = "";
+          for (i = 0; i < val.length; i++) {
+            hex = val.charCodeAt(i).toString(16);
+            result += ("000" + hex).slice(-4);
+          }
+    
+          return result
+        };
+  
+      dc.hexDecode = function(val) {
+        var j;
+        var hexes = val.match(/.{1,4}/g) || [];
+        var back = "";
+        for (j = 0; j < hexes.length; j++) {
+          back += String.fromCharCode(parseInt(hexes[j], 16));
+        }
+  
+        return back;
+      };        
 
 	})();
 });

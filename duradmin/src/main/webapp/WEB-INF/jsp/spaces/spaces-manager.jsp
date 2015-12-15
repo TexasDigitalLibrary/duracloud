@@ -84,6 +84,28 @@
       type="text/javascript"
       src="${pageContext.request.contextPath}/jquery/plugins/jquery.tablesorter/jquery.tablesorter.min.js"></script>
 
+	<link type="text/css" rel="stylesheet" href="${pageContext.request.contextPath}/jquery/plugins/jquery.datatables/jquery.dataTables.css" />
+    <style>
+	    .dataTables_wrapper .dataTables_length,
+	    .dataTables_wrapper .dataTables_filter,
+	    .dataTables_wrapper .dataTables_info,
+		.dataTables_wrapper .dataTables_processing,
+		.dataTables_wrapper .dataTables_paginate {
+			color: #FFF;
+		}
+		table.dataTable tbody tr {
+			background-color: unset;
+		}
+		.dataTables_wrapper .dataTables_paginate .paginate_button.disabled, .dataTables_wrapper .dataTables_paginate .paginate_button.disabled:hover, .dataTables_wrapper .dataTables_paginate .paginate_button.disabled:active {
+			color: #777 !important;
+		}
+		.dataTables_wrapper .dataTables_paginate .paginate_button {
+			color: #FFF !important;
+		}
+    </style>
+    
+    <script type="text/javascript" src="${pageContext.request.contextPath}/jquery/plugins/jquery.datatables/jquery.dataTables.min.js"></script>
+
     <script
       type="text/javascript"
       src="${pageContext.request.contextPath}/js/spaces-manager.js"></script>
@@ -293,11 +315,17 @@
             <div class="button-bar">
 
               <a id="restoreLink" class="button">View Restored Space</a>
+              <a id="metadataLink" class="button"><i class="pre download"></i>Download Metadata</a>
               <button 
                 id="restoreButton"
                 class="featured">
                 <i class="pre copy"></i>Restore Snapshot
               </button>
+              <button 
+                id="requestRestoreButton">
+                <i class="pre copy"></i>Request Restore
+              </button>
+
             </div>
           </div>
           <div class="center"></div>
@@ -345,10 +373,6 @@
               <button class="featured delete-space-button dc-delete-button">
                 <i class="pre trash"></i>Delete Selected Spaces
               </button>
-              <button class="add-remove-properties-button">
-                <i class="pre pencil"></i>Edit Properties
-              </button>
-
             </div>
 
           </div>

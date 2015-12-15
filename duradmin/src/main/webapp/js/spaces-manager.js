@@ -62,6 +62,18 @@ $(function() {
   $.fx.speeds._default = 10;
 
   /**
+   * ERROR Constants
+   * 
+   */
+  SnapshotErrorMessage = {};
+  SnapshotErrorMessage.UNAVAILABLE = "DuraCloud is not currently able to connect to DPN; " +
+  		"some features may not be available at the moment. " +
+  		"We apologize for the inconvenience.";
+  
+  displaySnapshotErrorDialog = function(jqXHR){
+    dc.displayErrorDialog(jqXHR, SnapshotErrorMessage.UNAVAILABLE,null, false);
+  };
+  /**
    * Disable default drag and drop functionality
    */
   $(document.body).bind("dragover drop", function(e) {
@@ -93,8 +105,13 @@ $(function() {
 
       var contentId = obj.contentId;
       if (contentId != null && contentId != undefined) {
-        relative += "/" + contentId;
+        relative += "/" + encodeURIComponent(contentId);
       }
+      var snapshot = obj.snapshot; 
+      if (snapshot) {
+        relative += "?snapshot=true";
+      }
+
       return contextPath + relative;
     };
 
@@ -102,17 +119,18 @@ $(function() {
       var state = {};
       var pathname = location.pathname;
 
-      // this check is necessary for non html5 history api
-      // compliant browsers.
-      var hash = location.hash;
-      if (hash && hash.indexOf("#" + contextPath) == 0) {
-        pathname = "/duradmin/" + hash.substring(1, hash.length);
-      }
-
       if (pathname) {
         var index = pathname.indexOf(contextPath);
         if (index == -1) {
           return state;
+        }
+        
+        var search = location.search;
+        var qmIndex = search.indexOf("?");
+        if (qmIndex > -1) {
+          if(search.substring(qmIndex).indexOf("snapshot=true") > 0){
+            state.snapshot=true; 
+          }
         }
 
         var subpathname = pathname.substring(index + contextPath.length);
@@ -125,10 +143,6 @@ $(function() {
             state.spaceId = subpathname.slice(first + 1, second + 1);
             if (subpathname.length > second) {
               var contentId = subpathname.substring(second + 2);
-              var qmIndex = contentId.indexOf("?");
-              if (qmIndex > 0) {
-                contentId = contentId.substring(0, qmIndex);
-              }
               state.contentId = decodeURIComponent(contentId);
             }
           } else {
@@ -148,8 +162,14 @@ $(function() {
       pushState : function(data) {
         var url = _buildUrl(data);
         var title = "DuraCloud";
-        window.History.pushState(data, title, url);
-        if ($.browser['msie']) {
+        history.pushState(data, title, url);
+        //next two lines:  a trick to trigger a 
+        //pushstate event.  Without the history.back()
+        //call pushstate is not fired.
+        history.pushState(data, title, url);
+        history.back();
+        
+	      if ($.browser['msie']) {
           instance.change(data);
         }
       },
@@ -191,7 +211,7 @@ $(function() {
     };
 
     $(window).bind("popstate pushstate statechanged", function(evt) {
-      var state = window.History.getState().data;
+      var state = history.state;
       if (!state) {
         state = buildStateFromUrl(window.location);
       }
@@ -204,7 +224,7 @@ $(function() {
         instance.change(state);
       });
     } else {
-      var unpopped = ('state' in window.history);
+      var unpopped = ('state' in history);
       if (unpopped) {
         setTimeout(function() {
           var evt = document.createEvent("PopStateEvent");
@@ -222,6 +242,8 @@ $(function() {
     storeProviders : storeProviders
   });
 });
+
+
 
 (function() {
 
@@ -568,8 +590,10 @@ $(function() {
           
           var loadWriteableSpaces = function(storeId, spaceId) {
             spaceSelect.busySibling("Loading writable spaces...");
+	    spaceSelect.disable(true);
             dc.store.GetSpaces(storeId, true, {
               success : function(spaces) {
+	        spaceSelect.disable(false);
                 var selectedSpaceId = spaceId ? spaceId : spaceSelect.val();
                 spaceSelect.children().remove();
                 spaceSelect.append("<option value=''>Choose</option>");
@@ -579,7 +603,7 @@ $(function() {
                 spaceSelect.val(selectedSpaceId);
                 spaceSelect.idleSibling();
               },
-            }, true // make
+            }, true// make
             // it an
             // asynchronous
             // call
@@ -590,7 +614,7 @@ $(function() {
           // a select box (ie multiple stores
           // available)
           // load list of spaces
-          destStoreIdField.change(function(evt) {
+          destStoreIdField.unbind().change(function(evt) {
             var dest = this;
             loadWriteableSpaces($(dest).val());
           });
@@ -1144,16 +1168,15 @@ $(function() {
         that._loadSnapshotContentItems(snapshot);
 
       }).error(function(jqXHR, textStatus, errorThrown) {
-        var message = "Unable to display snapshot.";
+      
         if (jqXHR.status == 404) {
           message = "snapshot " + params.spaceId + " does not exist.";
           this._detailManager.showEmpty();
-        } 
-        
-        dc.displayErrorDialog(jqXHR, 
-                              message, 
-                              errorThrown);
-
+          dc.displayErrorDialog(jqXHR, 
+                                message, null, false);
+        } else{
+          displaySnapshotErrorDialog(jqXHR);
+        }
       });
       
       return retrieveSnapshot;
@@ -1220,7 +1243,7 @@ $(function() {
         });
         
         deferred.then(function(){
-          that._contentItemListPane.contentitemlistpane("setCurrentById", params.contentId);
+          that._contentItemListPane.contentitemlistpane("setCurrentById", dc.hexEncode(params.contentId));
         });
         return deferred;
       };
@@ -1303,7 +1326,7 @@ $(function() {
               that._spacesArray.push(space);
             });
           }).error(function(jqXHR, textStatus, errorThrown) {
-            dc.displayErrorDialog(jqXHR, "Unable to display snapshot list.",errorThrown);
+            displaySnapshotErrorDialog(jqXHR);
           }).always(function(){
             that._spacesListPane.spaceslistpane("load", 
                                                 that._spacesArray, 
@@ -1654,7 +1677,7 @@ $(function() {
         if (length == 0) {
           that._toggleCheckAllContentItems(false);
           if (currentItem) {
-            var contentId = $(currentItem.item).attr("id");
+            var contentId = dc.hexDecode($(currentItem.item).attr("id"));
             HistoryManager.pushState({
               storeId : that._storeId,
               spaceId : space.spaceId,
@@ -1678,7 +1701,7 @@ $(function() {
         } else {
           if (length == 1) {
             that._toggleCheckAllContentItems(false);
-            var contentId = $(selectedItems[0]).attr("id");
+            var contentId = dc.hexDecode($(selectedItems[0]).attr("id"));
             var space = this.currentSpace();
 
             HistoryManager.pushState(that._createUniqueStateObject({
@@ -1735,7 +1758,7 @@ $(function() {
       });
 
       $(document).unbind("contentItemDeleted").bind("contentItemDeleted", function(evt, state) {
-        that._getList().selectablelist("removeById", state.contentId);
+        that._getList().selectablelist("removeById", dc.hexEncode(state.contentId));
       });
 
       $(document).unbind("contentItemAdded").bind("contentItemAdded", function(evt, state) {
@@ -1815,7 +1838,7 @@ $(function() {
       content = $.fn.create("span");
       content.attr("class", "dc-item-content").html(contentItem.contentId);
       node = $.fn.create("div");
-      node.attr("id", contentItem.contentId).append(content).append(actions);
+      node.attr("id", dc.hexEncode(contentItem.contentId)).append(content).append(actions);
 
       var item = this._getList().selectablelist('addItem', node, contentItem, false, readOnly);
       return item;
@@ -2116,8 +2139,8 @@ $(function() {
                                             prefix)
       .success(function(data) {
         handler(data);
-      }).error(function() {
-        dc.displayErrorDialog(xhr, "Failed to retrieve contents.");
+      }).error(function(jqXHR) {
+        displaySnapshotErrorDialog(jqXHR);
       }).always(function() {
         dc.done();
       });
@@ -2194,9 +2217,9 @@ $(function() {
           dc.done();
           that._addContentItemsToList(snapshot);
           that._updateNavigationControls(snapshot);
-        }).error(function(xhr, status, errorThrown) {
+        }).error(function(jqXHR, status, errorThrown) {
           setTimeout(function() {
-            alert("Failed to retrieve more content items:" + errorThrown);
+            displaySnapshotErrorDialog(jqXHR);
           }, 200);
 
           dc.done();
@@ -2250,8 +2273,8 @@ $(function() {
 
       dc.store.GetSnapshotContent(snapshot.sourceStoreId, snapshot.snapshotId, 0, "").success(function(snapshot) {
         that._load(snapshot);
-      }).error(function() {
-
+      }).error(function(jqXHR) {
+        displaySnapshotErrorDialog(jqXHR);
       }).always(function() {
         dc.done();
       });
@@ -2629,24 +2652,17 @@ $(function() {
       $.ui.basedetailpane.prototype._init.call(this);
     },
 
-    _preparePropertiesDialog : function(targetListDataType) {
+    _preparePropertiesDialog : function() {
       var that = this;
       var items, getFunction;
-      if (targetListDataType == "contentItem") {
-        items = this._contentItems;
-        getFunction = function(ci, callback) {
-          dc.store.GetContentItem(ci.storeId, ci.spaceId, ci.contentId, callback);
-        };
-      } else {
-        items = this._spaces;
-        getFunction = function(space, callback) {
-          dc.store.GetSpace(space.storeId, space.spaceId, callback);
-        };
-      }
+      items = this._contentItems;
+      getFunction = function(ci, callback) {
+        dc.store.GetContentItem(ci.storeId, ci.spaceId, ci.contentId, callback);
+      };
 
       this._aggregatePropertiesFromSelection(items, getFunction, {
         success : function(data) {
-          that._loadPropertiesDialog(data, targetListDataType);
+          that._loadPropertiesDialog(data);
         },
         failure : function(text) {
           alert("unable to load selection:" + text);
@@ -2769,7 +2785,7 @@ $(function() {
       return null;
     },
 
-    _loadPropertiesDialog : function(data, targetListType) {
+    _loadPropertiesDialog : function(data) {
       var that = this;
       var propertiesToBeAdded = [];
       var propertiesToBeRemoved = [];
@@ -2846,13 +2862,9 @@ $(function() {
             tagsToAdd : tagsToBeAdded,
           };
 
-          if (targetListType == "contentItem") {
-            params.contentItems = that._contentItems;
-            that._bulkUpdateContentProperties(params);
-          } else {
-            params.spaces = that._spaces;
-            that._bulkUpdateSpaceProperties(params);
-          }
+          params.contentItems = that._contentItems;
+          that._bulkUpdateContentProperties(params);
+          
 
           d.dialog("close");
           dc.busy("Preparing to perform update...", {
@@ -3020,11 +3032,6 @@ $(function() {
         deleteButton.hide();
       }
 
-      var editPropsButton = $(".add-remove-properties-button", this.element);
-      editPropsButton.click(function(evt) {
-        that._preparePropertiesDialog("space");
-      });
-
       if (this._isReadOnlyStorageProvider()) {
         deleteButton.hide();
         editPropsButton.hide();
@@ -3073,6 +3080,10 @@ $(function() {
 
       if (space.properties.streamingHost) {
         spaceProps.push([ 'Streaming Host', space.properties.streamingHost ]);
+      }
+
+      if (space.properties.streamingType) {
+        spaceProps.push([ 'Streaming Type', space.properties.streamingType ]);
       }
 
       var bitIntegrityReport = space.bitIntegrityReportProperties;
@@ -3171,7 +3182,7 @@ $(function() {
       var downloadManifestButton = $(".download-manifest-button", this.element);
       downloadManifestButton.hide();
 
-      if (this._isAdmin() && space.millDbEnabled) {
+      if (space.millDbEnabled) {
         downloadManifestButton.show();
         // attach delete button listener
         var manifestUrl = "/duradmin/manifest/"+this._storeId+"/"+this._spaceId + "?format="
@@ -3341,18 +3352,26 @@ $(function() {
       if (snapshot.snapshotDate) {
         snapshotDate = new Date(snapshot.snapshotDate);
       }
-      var props = [ [ "Description", snapshot.description ], 
+      var props = [ [ "Description", snapshot.description ],
+                    [ "Alternate Ids", snapshot.alternateIds.toString() ],
                     [ "Snapshot Date", snapshotDate.toString() ], 
                     [ "Source Host", snapshot.sourceHost ], 
                     [ "Source Store", snapshot.sourceStoreId ], 
                     [ "Source Space", snapshot.sourceSpaceId ], 
                     [ "Status", snapshot.status ],
+                    [ "Preservation Network Member ID", snapshot.memberId],
                     [ "Content Item Count", snapshot.contentItemCount ],
                     [ "Total Size", dc.formatBytes(snapshot.totalSizeInBytes,true) ]
                     
       ];
 
       this._loadProperties(props);
+      
+      var shProps = [ this._getHistoryDataTableTemplate() ];
+      
+      this._loadSnapshotHistoryPanel(shProps);
+      
+      this._loadHistory(snapshot.sourceStoreId, snapshot.snapshotId);
 
       this._configureRestoreControls();
     },
@@ -3360,25 +3379,37 @@ $(function() {
     _configureRestoreControls : function() {
       var that = this;
 
-      that._getRestoreButton().disable(true);
+      that._getMetadataLink().attr("href", dc.store.formatDownloadURL({storeId:this._storeId, spaceId:"x-snapshot-metadata", contentId: this._snapshot.snapshotId + ".zip"}, true));
+                              
+      that._getMetadataLink().hide();
+      
+      that._getRequestRestoreButton().hide();
+
+      that._getRestoreButton().hide();
+
       that._getRestoreLink().hide();
 
       if (that._snapshot.status != 'SNAPSHOT_COMPLETE') {
         return;
       }
-
+      
+      that._getMetadataLink().show();
+      
       that._getRestoreButton().busySibling("Retrieving restore info...");
+
       return dc.store.GetSnapshotRestoreSpaceId({snapshotId:that._snapshot.snapshotId,
                                 storeId:that._snapshot.sourceStoreId}).success(function(restoreSpace) {
         if(restoreSpace.spaceId){
           that._enableRestoreLink(restoreSpace);
         }else{
-          that._enableRestoreButton();
+          if(that._isRoot()){
+            that._enableRestoreButton();
+          }else if(that._isAdmin()){
+            that._enableRequestRestoreButton();
+          }
         }
-      }).error(function(jqxhr, textStatus, errorThrown) {
-          dc.displayErrorDialog(jqxhr, 
-                                "Unable to retrieve restore space id.", 
-                                errorThrown);
+      }).error(function(jqXHR, textStatus, errorThrown) {
+        displaySnapshotErrorDialog(jqXHR);
       }).always(function(){
         that._getRestoreButton().idleSibling();
       });
@@ -3386,6 +3417,14 @@ $(function() {
 
     _getRestoreButton : function() {
       return $(this.element).find("#restoreButton");
+    },
+
+    _getRequestRestoreButton : function() {
+      return $(this.element).find("#requestRestoreButton");
+    },
+
+    _getMetadataLink : function() {
+      return $(this.element).find("#metadataLink");
     },
 
     _getRestoreLink : function() {
@@ -3397,7 +3436,14 @@ $(function() {
       that._getRestoreLink().hide();
       that._getRestoreButton().unbind("click").click(function() {
         that._restoreSnapshot();
-      }).disable(false);
+      }).show();
+    },
+
+    _enableRequestRestoreButton : function() {
+      var that = this;
+      that._getRequestRestoreButton().unbind("click").click(function() {
+        that._requestRestoreSnapshot();
+      }).show();
     },
 
     _restoreSnapshot : function() {
@@ -3410,11 +3456,21 @@ $(function() {
         }).error(function(){
            dc.done();
         });
-      }).error(function(jqxhr, textStatus, errorThrown) {
+      }).error(function(jqXHR, textStatus, errorThrown) {
         dc.done();
-        dc.displayErrorDialog(jqxhr, 
-                              "Unable to initiate snapshot restore.", 
-                              errorThrown);
+        displaySnapshotErrorDialog(jqXHR);
+      });
+    },
+
+    _requestRestoreSnapshot : function() {
+      var that = this;
+      dc.busy("Requesting restore...");
+      dc.store.RequestRestoreSnapshot(that._storeId, that._snapshot.snapshotId).success(function(data) {
+        dc.busy("Restore successfully requested.");
+        setInterval(dc.done, 3000);
+      }).error(function(jqXHR, textStatus, errorThrown) {
+        dc.done();
+        displaySnapshotErrorDialog(jqXHR);
       });
     },
 
@@ -3425,6 +3481,146 @@ $(function() {
       that._getRestoreLink().unbind("click").click(function() {
         HistoryManager.pushState(that._createUniqueStateObject(restoreSpace));
       }).show();
+    },
+    
+    _loadSnapshotHistoryPanel : function(
+	    /* array */properties) {
+        var propertiesDiv = $(".detail-properties", this.element).first();
+        
+        if (propertiesDiv.size() == 1) {
+          propertiesDiv = $.fn.create("div").addClass("detail-properties");
+          propertiesDiv.tabularexpandopanel({
+            title : "Snapshot History " + 
+                    "<a id='history-download'  href='" + 
+                    dc.store.formatSnapshotHistoryUrl(this._storeId, 
+                                                      this._snapshot.snapshotId, 
+                                                      -1, true) + 
+                    "'>Download</a>",
+            data : properties
+          });
+          this._appendToCenter(propertiesDiv);
+          
+          $("#history-download", propertiesDiv)
+             .click(function(e){e.stopPropagation();});
+                                               
+         
+        } else {
+          $(propertiesDiv).tabularexpandopanel("setData", properties);
+        }
+        
+        return propertiesDiv;
+    },
+    
+    _getHistoryDataTableTemplate : function() {
+    	var table = $.fn.create('table');
+    	table.attr({ 'id': 'snapshot_history', 'data-order': '[[ 0, "desc" ]]', 'data-page-length': '10' });
+    	var thead = $.fn.create('thead');
+    	var tr = $.fn.create('tr');
+    	var historyDateTH = $.fn.create('th');
+    	historyDateTH.append("Date");
+    	var historyTH = $.fn.create('th');
+    	historyTH.append("Property");
+    	tr.append(historyDateTH);
+    	tr.append(historyTH);
+    	thead.append(tr);
+    	table.append(thead);
+    	var tbody = $.fn.create('tbody');
+    	table.append(tbody);
+    	return table;
+    },
+    
+    _loadHistory : function(storeId, snapshotId) {
+    	
+    	dc.store.GetSnapshotHistory(storeId, snapshotId, "0").success(function(data) {
+    		$('#snapshot_history').dataTable( {
+    			autoWidth: false,
+    		    processing: true,
+                data: data.historyItems,
+                columns: [
+                  { data: 'historyDate', width: '30%', render: function (data, type, row, meta) {
+                	  		// make sure we 'display' and 'filter' the String of the date
+                	  		if ( type === 'display' || type === 'filter' ) {
+                	  			return new Date(data);
+                	  		}
+                	  		// make sure we 'sort', and 'type' by the Long of the date
+                	  		else {
+                	  			return data;
+                	  		}
+                	  }
+                  },
+                  { data: 'history', width: '70%', render: function (data, type, row, meta) {
+		                	// make sure we 'display' the String of the date
+		          	  		if ( type === 'display') {
+		          	  			var ret = "";
+		          	  			// see if the data is a JSON array.
+		          	  			try {
+		          	  				var obj = $.parseJSON(data);
+		          	  				// if it is, output key => value pairs
+			          	  			if($.isArray(obj)) {
+			          	  				// we'll put our key=>value pairs in a new <table>
+			          	  				var table = $.fn.create('table');
+			          	  				var tr = $(document.createElement('tr'));
+			          	  				var th = $.fn.create('th');
+			          	  				th.css("padding", "5px 10px");
+			          	  				th.append("Name");
+			          	  				tr.append(th);
+			          	                var th = $.fn.create('th');
+			          	                th.css("padding", "5px 10px");
+			          	                th.append("Value");
+			          	                tr.append(th);
+			          	                table.append(tr);
+			          	  				// get each object in this array
+				          	  			$.each(obj, function(index, keypair) {
+				          	  				var tr = $.fn.create('tr');
+				          	  				// if this array position is an object
+				          	  				if($.isPlainObject(keypair)) {
+					          	  				// get each key=>value pair in this array index
+				          	  					$.each(keypair, function(key, value) {
+				          	  						var tdKey = $.fn.create('td');
+				          	  						var tdVal = $.fn.create('td');
+				          	  						tdKey.append(key);
+				          	  						tdVal.append(value);
+				          	  						tr.append(tdKey);
+				          	  						tr.append(tdVal);
+				          	  					});
+				          	  				}
+				          	  				// we're an array, but our element isn't an object that we can get a key=>value pair from.
+				          	  				// Treat keypair like a string.
+				          	  				else {
+				          	  					var tdKey = $.fn.create('td');
+		          	  							var tdVal = $.fn.create('td');
+			          	  						tdKey.append(index);
+			          	  						tdVal.append(keypair);
+				          	  					tr.append(tdKey);
+			          	  						tr.append(tdVal);
+				          	  				}
+				          	  				table.append(tr);
+			          	  				});
+				          	  			// we return our <table>'s html as a string
+				          	  			ret = table.prop('outerHTML');
+			          	  			}
+		          	  				// else, output plain string
+			          	  			else {
+			          	  				ret = data;
+			          	  			}
+		          	  			}		          	  			
+		          	  			catch(err) {
+		          	  				ret = data;
+		          	  			}
+		          	  			return ret;
+		          	  		}
+		          	  		// make sure we 'filter', 'sort', and 'type' by the Long of the date
+		          	  		else {
+		          	  			return data;
+		          	  		}
+                	  }
+                  },
+                ],
+    		} );
+    	}).error(function(jqXHR, textStatus, errorThrown) {
+    		dc.done();
+        displaySnapshotErrorDialog(jqXHR);
+    	});
     },
   }));
 
@@ -3465,7 +3661,7 @@ $(function() {
         addRemoveProperties.hide();
       } else {
         addRemoveProperties.click(function(evt) {
-          that._preparePropertiesDialog("contentItem");
+          that._preparePropertiesDialog();
         });
       }
 
@@ -3832,15 +4028,27 @@ $(function() {
         spaceId : contentItem.spaceId
       })).done(function(result) {
         var streamingHost = result.space.properties.streamingHost;
+        var streamingType = result.space.properties.streamingType;
         if (streamingHost != null && streamingHost.trim() != "" && streamingHost.indexOf("null") == -1) {
-          that._writeMediaTag(streamingHost, contentItem);
+          if (streamingType == "OPEN") {
+            dc.store.GetStreamingUrl(contentItem, streamingType, {
+              success: function (streamingUrl) {
+                that._writeMediaTag(streamingUrl);
+              },
+              failure: function (data) {
+                viewer.append("<p>Unable to stream file</p>");
+              }
+            });
+          } else {
+            viewer.append("<p>Streaming preview unavailable for secure streams</p>");
+          }
         } else {
-          viewer.append("<p>Turn on streaming for this space to enable playback.</p>");
+          viewer.append("<p>Turn on streaming for this space to enable playback</p>");
         }
       });
     },
 
-    _writeMediaTag : function(streamingHost, contentItem) {
+    _writeMediaTag : function(streamingUrl) {
       setTimeout(function() {
         // async necessary to
         // let the DOM update
@@ -3852,8 +4060,8 @@ $(function() {
         so.addParam('allowscriptaccess', 'always');
         so.addParam('wmode', 'opaque');
         so.addVariable('skin', '/duradmin/jwplayer/stylish.swf');
-        so.addVariable('file', contentItem.contentId);
-        so.addVariable('streamer', 'rtmp://' + streamingHost + '/cfx/st');
+        so.addVariable('file', streamingUrl.suffix);
+        so.addVariable('streamer', streamingUrl.prefix);
         so.write('mediaspace');
       }, 1000);
     },

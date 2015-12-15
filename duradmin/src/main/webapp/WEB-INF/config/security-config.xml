@@ -15,7 +15,6 @@
   <http entry-point-ref="authenticationProcessingFilterEntryPoint">
     <intercept-url pattern="/init" method="GET" access="IS_AUTHENTICATED_ANONYMOUSLY"/>
     <intercept-url pattern="/init" method="POST" access="ROLE_ROOT"/>
-    <intercept-url pattern="/spaces/snapshot" method="POST" access="ROLE_ADMIN"/>
     <intercept-url pattern="/security" access="ROLE_ROOT"/>
     <intercept-url pattern="/dashboard" access="ROLE_ROOT"  />
     <intercept-url pattern="/admin" access="ROLE_ROOT"  />
@@ -35,13 +34,14 @@
 
   <!-- AuthN Manager -->
   <authentication-manager alias="authenticationManager"  erase-credentials="false">
-    <authentication-provider user-service-ref="userDetailsSvc">
-       <password-encoder ref="passwordEncoder"/>
-    </authentication-provider>
-    <authentication-provider user-service-ref="userDetailsSvc"/>
-
+    <authentication-provider ref="authProvider" />
   </authentication-manager>
-  
+
+  <beans:bean id="authProvider" class="org.duracloud.security.impl.DuracloudAuthProvider">
+    <beans:constructor-arg ref="userDetailsSvc" />
+    <beans:constructor-arg ref="passwordEncoder"/>
+  </beans:bean>
+
   <beans:bean id="userDetailsSvc" class="org.duracloud.security.impl.UserDetailsServiceImpl"/>
 
   <beans:bean id="passwordEncoder"

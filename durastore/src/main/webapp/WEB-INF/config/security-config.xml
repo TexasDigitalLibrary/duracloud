@@ -16,10 +16,8 @@
       various servlet filters (including basic-auth, anonymous, and exception-translation)
    -->
   <http access-decision-manager-ref="duraAccessDecisionManager"
-        realm="DuraCloud:DuraStore">
-
+        realm="DuraCloud:DuraStore" >
     <intercept-url pattern="/security" access="ROLE_ROOT"/>
-
     <intercept-url pattern="/init" method="GET" access="ROLE_ANONYMOUS, ROLE_USER"/>
     <intercept-url pattern="/init" method="POST" access="ROLE_ROOT"/>
 
@@ -28,12 +26,18 @@
     <intercept-url pattern="/acl/" method="PUT" access="ROLE_ROOT"/>
     <intercept-url pattern="/acl" method="POST" access="ROLE_ADMIN"/>
 
-    <intercept-url pattern="/task" method="GET" access="ROLE_ADMIN"/>
-    <intercept-url pattern="/task" method="POST" access="ROLE_ADMIN"/>
-
+    <!-- limit snapshot restorals to root users (durachron-94) -->
+    <intercept-url pattern="/task/restore-snapshot" method="POST" access="ROLE_ROOT"/>
     <!-- limit access to the Glacier content restore capability -->
     <intercept-url pattern="/task/restore-content" method="POST" access="ROLE_ROOT"/>
-
+    <!-- limit access to set S3 bucket lifecycle policies -->
+    <intercept-url pattern="/task/set-storage-policy" method="POST" access="ROLE_ROOT"/>
+    <intercept-url pattern="/task/get-snapshot" access="ROLE_USER"/>
+    <intercept-url pattern="/task/get-snapshots" access="ROLE_USER"/>
+    <intercept-url pattern="/task/get-snapshot-history" access="ROLE_USER"/>
+    <intercept-url pattern="/task/get-snapshot-contents" access="ROLE_USER"/>
+    <intercept-url pattern="/task/get-restore"  access="ROLE_USER"/>
+    <intercept-url pattern="/task/*" access="ROLE_ADMIN"/>
     <intercept-url pattern="/stores" method="GET" access="ROLE_USER"/>
     <intercept-url pattern="/stores" method="POST" access="ROLE_ROOT"/>
 
@@ -76,6 +80,7 @@
         <beans:ref bean="spaceReadAccessVoter"/>
         <beans:ref bean="spaceWriteAccessVoter"/>
         <beans:bean class="org.duracloud.security.vote.RoleVoterImpl" />
+        <beans:bean class="org.duracloud.security.vote.UserIpLimitsAccessVoter" />
       </beans:list>
     </beans:property>
   </beans:bean>
@@ -85,9 +90,8 @@
     <authentication-provider user-service-ref="userDetailsSvc">
         <password-encoder ref="passwordEncoder"/>
     </authentication-provider>
-    <authentication-provider user-service-ref="userDetailsSvc">
-    </authentication-provider>
-   </authentication-manager>
+    <authentication-provider user-service-ref="userDetailsSvc" />
+  </authentication-manager>
 
   <beans:bean id="userDetailsSvc" class="org.duracloud.security.impl.UserDetailsServiceImpl">
   </beans:bean>

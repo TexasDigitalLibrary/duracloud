@@ -105,6 +105,7 @@ public class ACLStorageProviderTest {
             Assert.assertTrue(userSpacesA.contains(space));
             i++;
         }
+        
         Assert.assertEquals(userSpacesA.size(), i);
     }
 
@@ -165,6 +166,7 @@ public class ACLStorageProviderTest {
         DuracloudUserDetails userDetails = new DuracloudUserDetails(username,
                                                                     "password",
                                                                     "email",
+                                                                    "",
                                                                     true,
                                                                     true,
                                                                     true,

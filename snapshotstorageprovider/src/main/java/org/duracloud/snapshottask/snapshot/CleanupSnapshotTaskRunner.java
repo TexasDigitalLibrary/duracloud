@@ -7,19 +7,32 @@
  */
 package org.duracloud.snapshottask.snapshot;
 
-import com.amazonaws.services.s3.AmazonS3Client;
-import com.amazonaws.services.s3.model.BucketLifecycleConfiguration;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Set;
+
+import org.duracloud.audit.task.AuditTask;
+import org.duracloud.audit.task.AuditTask.ActionType;
+import org.duracloud.common.queue.TaskQueue;
+import org.duracloud.common.queue.task.Task;
+import org.duracloud.common.retry.Retriable;
+import org.duracloud.common.retry.Retrier;
+import org.duracloud.mill.db.model.ManifestItem;
+import org.duracloud.mill.manifest.ManifestStore;
 import org.duracloud.snapshot.SnapshotConstants;
 import org.duracloud.snapshot.dto.task.CleanupSnapshotTaskParameters;
 import org.duracloud.snapshot.dto.task.CleanupSnapshotTaskResult;
 import org.duracloud.snapshotstorage.SnapshotStorageProvider;
-import org.duracloud.storage.provider.StorageProvider;
+import org.duracloud.storage.domain.StorageProviderType;
 import org.duracloud.storage.provider.TaskRunner;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.core.context.SecurityContextHolder;
 
-import java.util.ArrayList;
-import java.util.List;
+import com.amazonaws.services.s3.AmazonS3Client;
+import com.amazonaws.services.s3.model.BucketLifecycleConfiguration;
 
 /**
  * Cleans up the snapshot by removing content that is no longer
@@ -36,16 +49,25 @@ public class CleanupSnapshotTaskRunner implements TaskRunner {
 
     private static int EXPIRATION_DAYS = 1;
 
-    private StorageProvider snapshotProvider;
     private SnapshotStorageProvider unwrappedSnapshotProvider;
     private AmazonS3Client s3Client;
-
-    public CleanupSnapshotTaskRunner(StorageProvider snapshotProvider,
-                                     SnapshotStorageProvider unwrappedSnapshotProvider,
-                                     AmazonS3Client s3Client) {
-        this.snapshotProvider = snapshotProvider;
+    private TaskQueue auditTaskQueue;
+    private ManifestStore manifestStore;
+    private String account;
+    private String storeId;
+    
+    public CleanupSnapshotTaskRunner(SnapshotStorageProvider unwrappedSnapshotProvider,
+                                     AmazonS3Client s3Client, 
+                                     TaskQueue auditTaskQueue,
+                                     ManifestStore manifestStore, 
+                                     String account,
+                                     String storeId) {
         this.unwrappedSnapshotProvider = unwrappedSnapshotProvider;
         this.s3Client = s3Client;
+        this.auditTaskQueue = auditTaskQueue;
+        this.manifestStore = manifestStore;
+        this.storeId = storeId;
+        this.account = account;
     }
 
     @Override
@@ -57,7 +79,10 @@ public class CleanupSnapshotTaskRunner implements TaskRunner {
     public String performTask(String taskParameters) {
         CleanupSnapshotTaskParameters taskParams =
             CleanupSnapshotTaskParameters.deserialize(taskParameters);
-        String spaceId = taskParams.getSpaceId();
+        final String spaceId = taskParams.getSpaceId();
+        final String userId =
+            SecurityContextHolder.getContext().getAuthentication().getName();
+
         String bucketName = unwrappedSnapshotProvider.getBucketName(spaceId);
 
         log.info("Performing Cleanup Snapshot Task for spaceID: " + spaceId);
@@ -78,10 +103,62 @@ public class CleanupSnapshotTaskRunner implements TaskRunner {
         // Set policy on bucket
         s3Client.setBucketLifecycleConfiguration(bucketName, configuration);
 
-        log.info("Cleanup Snapshot Task for space " + spaceId +
+        queueContentDeleteAuditTasks(spaceId,userId);
+
+       log.info("Cleanup Snapshot Task for space " + spaceId +
                  " completed successfully");
 
         return new CleanupSnapshotTaskResult(EXPIRATION_DAYS).serialize();
     }
 
+    protected void queueContentDeleteAuditTasks(final String spaceId, final String userId) {
+
+        new Thread(new Runnable() {
+            public void run() {
+                try {
+                    new Retrier(4, 60*1000, 2).execute(new Retriable() {
+                        public Object retry() throws Exception {
+                            //create delete audit messages for each item in the space.
+                            Iterator<ManifestItem> items = manifestStore.getItems(account, storeId, spaceId);
+                            long count = 0;
+                            Set<Task> tasks = new HashSet<Task>();
+                            while(items.hasNext()){
+                                ManifestItem item  = items.next();
+                                AuditTask task = new AuditTask();
+                                task.setAccount(account);
+                                task.setSpaceId(spaceId);
+                                task.setStoreId(storeId);
+                                task.setDateTime(String.valueOf(System.currentTimeMillis()));
+                                task.setContentId(item.getContentId());
+                                task.setContentSize(item.getContentSize());
+                                task.setStoreType(StorageProviderType.SNAPSHOT.name());
+                                task.setContentChecksum(item.getContentChecksum());
+                                task.setAction(ActionType.DELETE_CONTENT.name());
+                                task.setUserId(userId);
+                                tasks.add(task.writeTask());
+
+                                if(tasks.size() >= 10){
+                                    auditTaskQueue.put(tasks);
+                                    tasks = new HashSet<>();
+                                }
+                                
+                                count++;
+                            }
+                            
+                            if(tasks.size() > 0){
+                                auditTaskQueue.put(tasks);
+                            }
+                            log.info("Added {} delete audit tasks.", count);
+
+                            return null;
+                        }
+                    });
+                } catch (Exception e) {
+                    String message = "Failed to complete queue of deletion audit tasks for " + 
+                                     spaceId + " : message =" + e.getMessage();
+                    log.error(message, e);
+                }
+            }
+        }, "snapshot-cleanup-" + spaceId).start();
+    }
 }

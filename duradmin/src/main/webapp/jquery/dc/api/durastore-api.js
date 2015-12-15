@@ -304,8 +304,28 @@ var dc;
         if(!openSpace){
             contentUrl = contentUrl.replace("http://", "https://");}
         return j2kViewerBaseURL + "/viewer.html?rft_id=" + encodeURIComponent(contentUrl);
-	};	
+	};
 
+    /**
+     * Retrieves a streaming URL for a given content item in a given space.
+     * The URL will be either signed or unsigned, depending on the streaming type.
+     */
+    dc.store.GetStreamingUrl = function(contentItem, streamingType, callback){
+        return dc.ajax({
+            url: "/duradmin/spaces/content/streaming-url",
+            data: "storeId="+contentItem.storeId+
+                  "&spaceId="+encodeURIComponent(contentItem.spaceId)+
+                  "&contentId="+encodeURIComponent(contentItem.contentId)+
+                  "&streamingType="+streamingType,
+            cache: false,
+            success: function(data){
+                callback.success(data.streamingUrl);
+            },
+            failure: function(data){
+                callback.failure(data);
+            }
+        },callback);
+    };
 	
 	/**
 	 * 
@@ -421,6 +441,15 @@ var dc;
         });
     };
 
+    dc.store.RequestRestoreSnapshot = function(storeId, snapshotId){
+      return dc.ajax2({
+          url: "/duradmin/spaces/restores/request?storeId="+storeId+"&snapshotId="+snapshotId, 
+          async: true,
+          dataType: 'json',
+          type: "post",
+      });
+  };
+
     dc.store.GetSnapshots = function(storeId){
         return dc.ajax2({
             url: "/duradmin/spaces/snapshots/" + storeId, 
@@ -493,6 +522,24 @@ var dc;
             async : true,
             type : "get",
         });
+    };
+    
+    dc.store.GetSnapshotHistory = function(storeId, snapshotId, page){
+        if(!page){
+            page = 0;
+        }
+        
+        return dc.ajax2({
+            url : dc.store.formatSnapshotHistoryUrl(storeId, snapshotId, page, "false"),
+            dataType : 'json',
+            async : true,
+            type : "get",
+        });
+    };
+    
+    dc.store.formatSnapshotHistoryUrl = function(storeId, snapshotId, page, attachment) {
+      return "/duradmin/spaces/snapshots/" + storeId + "/" + snapshotId
+      + "/history?page=" + page + "&attachment=" + attachment;
     };
     /**
      * 

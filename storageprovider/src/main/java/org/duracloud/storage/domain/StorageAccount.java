@@ -21,7 +21,9 @@ public interface StorageAccount {
      */
     public enum OPTS {
         // S3 below
-        STORAGE_CLASS,
+        CF_ACCOUNT_ID,
+        CF_KEY_ID,
+        CF_KEY_PATH,
         // iRODS below
         ZONE,
         PORT,
@@ -34,7 +36,8 @@ public interface StorageAccount {
         BRIDGE_HOST,
         BRIDGE_PORT,
         BRIDGE_USER,
-        BRIDGE_PASS;
+        BRIDGE_PASS,
+        BRIDGE_MEMBER_ID;
     }
 
     public String getId();

@@ -7,9 +7,18 @@
  */
 package org.duracloud.security.vote;
 
+import static org.duracloud.security.vote.VoterUtil.*;
+
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+
+import javax.servlet.http.HttpServletRequest;
+
 import org.duracloud.common.constant.Constants;
 import org.duracloud.common.model.AclType;
 import org.duracloud.security.domain.HttpVerb;
+import org.duracloud.security.util.SecurityUtil;
 import org.duracloud.storage.domain.StorageAccount;
 import org.duracloud.storage.domain.StorageProviderType;
 import org.duracloud.storage.error.NotFoundException;
@@ -19,15 +28,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetailsService;
-
-import javax.servlet.http.HttpServletRequest;
-import java.util.Collection;
-import java.util.List;
-import java.util.Map;
-
-import static org.duracloud.security.vote.VoterUtil.debugText;
 
 /**
  * This class decides if a caller has WRITE access to a given resource. If the
@@ -41,6 +42,7 @@ public class SpaceWriteAccessVoter extends SpaceAccessVoter {
 
     private final Logger log =
         LoggerFactory.getLogger(SpaceReadAccessVoter.class);
+
 
     public SpaceWriteAccessVoter(StorageProviderFactory storageProviderFactory,
                                  UserDetailsService userDetailsService) {
@@ -95,8 +97,22 @@ public class SpaceWriteAccessVoter extends SpaceAccessVoter {
             log.debug(debugText(label, auth, config, resource, ACCESS_GRANTED));
             return ACCESS_GRANTED;
         }
+        
+        if(isTask(httpRequest)){
+            log.debug(debugText(label, auth, config, resource, ACCESS_GRANTED));
+            //task configuration rules are defined in durastore's security-config.xml
+            //so if the call has made it this far, then we allow it.
+            return ACCESS_GRANTED;
+        }
 
-        if (isSnapshotInProgress(httpRequest)) {
+        // Do not allow deletions from or of the snapshot metadata space
+        if (isSnapshotMetadataSpace(httpRequest) && isDeleteAction(httpRequest)) {
+            log.debug(debugText(label, auth, config, resource, ACCESS_DENIED));
+            return ACCESS_DENIED;
+        }
+
+        // Do not allow changes other than acl update calls to spaces which are in the middle of the snapshot process
+        if (isSnapshotInProgress(httpRequest) && !isSpaceAclUpdate(httpRequest)) {
             log.debug(debugText(label, auth, config, resource, ACCESS_DENIED));
             return ACCESS_DENIED;
         }
@@ -106,7 +122,6 @@ public class SpaceWriteAccessVoter extends SpaceAccessVoter {
             log.debug(debugText(label, auth, config, resource, ACCESS_GRANTED));
             return ACCESS_GRANTED;
         }
-
         
         // Since not an Admin, DENY permission to create spaces.
         if (isSpaceCreation(httpRequest)) {
@@ -137,20 +152,19 @@ public class SpaceWriteAccessVoter extends SpaceAccessVoter {
             log.debug(debugText(label, auth, config, resource, ACCESS_GRANTED));
             return ACCESS_GRANTED;
         }
+        
 
         int grant = ACCESS_DENIED;
         log.debug(debugText(label, auth, config, resource, grant));
         return grant;
     }
 
+    private boolean isTask(HttpServletRequest httpRequest) {
+        return "task".equals(getSpaceId(httpRequest));
+    }
+
     private boolean isRoot(Authentication auth) {
-        for(GrantedAuthority g : auth.getAuthorities()){
-            if(g.getAuthority().equals("ROLE_ROOT")){
-                return true;
-            }
-        }
-        
-        return false;
+        return SecurityUtil.isRoot(auth);
     }
 
     private boolean isSnapshotInProgress(HttpServletRequest httpRequest) {
@@ -208,4 +222,10 @@ public class SpaceWriteAccessVoter extends SpaceAccessVoter {
         return false;
     }
 
+    private boolean isDeleteAction(HttpServletRequest httpRequest) {
+        if (HttpVerb.DELETE.equals(getHttpVerb(httpRequest))) {
+            return true;
+        }
+        return false;
+    }
 }
