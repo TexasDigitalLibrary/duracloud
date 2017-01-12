@@ -7,6 +7,7 @@
  */
 package org.duracloud.chunk.writer;
 
+import org.apache.commons.io.FileUtils;
 import org.duracloud.chunk.ChunkableContent;
 import org.duracloud.chunk.error.ContentNotAddedException;
 import org.duracloud.chunk.error.NotFoundException;
@@ -14,12 +15,19 @@ import org.duracloud.chunk.manifest.ChunksManifest;
 import org.duracloud.chunk.stream.ChunkInputStream;
 import org.duracloud.chunk.stream.KnownLengthInputStream;
 import org.duracloud.client.ContentStore;
+import org.duracloud.common.retry.Retriable;
+import org.duracloud.common.retry.Retrier;
+import org.duracloud.common.util.ChecksumUtil;
+import org.duracloud.common.util.IOUtil;
 import org.duracloud.error.ContentStoreException;
 import org.duracloud.common.error.DuraCloudRuntimeException;
 import org.duracloud.storage.provider.StorageProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -27,6 +35,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
 
 /**
  * This class implements the ContentWriter interface to write the provided
@@ -43,20 +52,62 @@ public class DuracloudContentWriter implements ContentWriter {
     private String username;
     private Set<String> existingSpaces = new HashSet<String>();
     private List<AddContentResult> results = new ArrayList<AddContentResult>();
+    private ChecksumUtil checksumUtil = new ChecksumUtil(ChecksumUtil.Algorithm.MD5);
 
     // if true, skip writing results and throw exception when errors occur
     private boolean throwOnError = false;
 
+    // if true, skip checks for chunks in storage
+    private boolean jumpStart = false;
+    
+    private static int DEFAULT_MAX_RETRIES = 4;  //actual attempts will always equal MAX_RETRIES+1
+    private static int DEFAULT_WAIT_IN_MS_BETWEEN_RETRIES = 1000;
+    
+    private int maxRetries = DEFAULT_MAX_RETRIES;
+    private int waitInMsBetweenRetries = DEFAULT_MAX_RETRIES;
+    
     public DuracloudContentWriter(ContentStore contentStore, String username) {
+        this(contentStore,
+             username,
+             DEFAULT_MAX_RETRIES,
+             DEFAULT_WAIT_IN_MS_BETWEEN_RETRIES);
+    }
+    
+    public DuracloudContentWriter(ContentStore contentStore,
+                                  String username,
+                                  int maxRetries,
+                                  int waitInMsBetweenRetries) {
         this.contentStore = contentStore;
         this.username = username;
+        this.maxRetries = maxRetries;
+        this.waitInMsBetweenRetries = waitInMsBetweenRetries;
     }
 
     public DuracloudContentWriter(ContentStore contentStore,
                                   String username,
-                                  boolean throwOnError) {
-        this(contentStore, username);
+                                  boolean throwOnError,
+                                  boolean jumpStart) {
+        this(contentStore,
+             username,
+             throwOnError,
+             jumpStart,
+             DEFAULT_MAX_RETRIES,
+             DEFAULT_WAIT_IN_MS_BETWEEN_RETRIES);
+    }
+    
+    public DuracloudContentWriter(ContentStore contentStore,
+                                  String username,
+                                  boolean throwOnError,
+                                  boolean jumpStart,
+                                  int maxRetries, 
+                                  int waitInMsBetweenRetries) {
+        this(contentStore, username, maxRetries, waitInMsBetweenRetries);
         this.throwOnError = throwOnError;
+        this.jumpStart = jumpStart;
+    }
+
+    public int getMaxRetries(){
+        return this.maxRetries;
     }
 
     public List<AddContentResult> getResults() {
@@ -84,18 +135,130 @@ public class DuracloudContentWriter implements ContentWriter {
                                 ChunkableContent chunkable,
                                 Map<String, String> contentProperties)
         throws NotFoundException {
+        return write(spaceId, chunkable, contentProperties, true);
+    }
+    
+    private ChunksManifest write(String spaceId,
+                                ChunkableContent chunkable,
+                                Map<String, String> contentProperties, 
+                                boolean lastAttempt)
+        throws NotFoundException {
         log.debug("write: " + spaceId);
         createSpaceIfNotExist(spaceId);
-
+        boolean errorsExist = false;
+        
         for (ChunkInputStream chunk : chunkable) {
-            writeSingle(spaceId, null, chunk, null);
+            writeChunk(spaceId, chunk);
+            
+            if(errorsExist = errorsExist()){
+                break;
+            }
         }
 
         ChunksManifest manifest = chunkable.finalizeManifest();
-        addManifest(spaceId, manifest, contentProperties);
+
+        if(!errorsExist){
+            addManifest(spaceId, manifest, contentProperties,lastAttempt);
+        }
 
         log.debug("written: " + spaceId + ", " + manifest.getManifestId());
         return manifest;
+    }
+
+    protected boolean errorsExist() {
+        boolean containsErrors = false;
+        for(AddContentResult result : this.results){
+            if(result.getState().equals(AddContentResult.State.ERROR)){
+                containsErrors = true;
+                break;
+            }
+        }
+        return containsErrors;
+    }
+
+    /*
+     * Writes chunk to DuraCloud if it does not already exist in DuraCloud with a
+     * matching checksum. Retry failed transfers.
+     */
+    private void writeChunk(String spaceId, ChunkInputStream chunk)
+        throws NotFoundException {
+        // Write chunk as a temp file
+        String chunkId = chunk.getChunkId();
+        File chunkFile = IOUtil.writeStreamToFile(chunk);
+
+        try {
+            String chunkChecksum = getChunkChecksum(chunkFile);
+
+            // Write chunk if it is not already in storage (or jumpstart is enabled)
+            if (jumpStart || !chunkInStorage(spaceId, chunkId, chunkChecksum)) {
+                try {
+                    createRetrier().execute(new Retriable() {
+                        private int attempt = 0;
+                        @Override
+                        public Object retry() throws Exception {
+                            attempt++;
+                            try(InputStream chunkStream = new FileInputStream(chunkFile)) {
+                                ChunkInputStream chunkFileStream =
+                                    new ChunkInputStream(chunkId,
+                                                         chunkStream,
+                                                         chunkFile.length(),
+                                                         chunk.md5Preserved());
+                                writeSingle(spaceId, chunkChecksum, chunkFileStream, attempt == getMaxRetries()+1);
+                            }
+                            return "";
+                        }
+                    });
+                        
+                } catch (Exception e) {
+                    String err = "Failed to store chunk with ID " + chunkId +
+                                 " in space " + spaceId + " after " + getMaxRetries() +
+                                 " attempts. Last error: " + e.getMessage();
+                    throw new DuraCloudRuntimeException(err, e);
+                }
+            }
+        } finally {
+            if(null != chunkFile && chunkFile.exists()) {
+                FileUtils.deleteQuietly(chunkFile);
+            }
+        }
+    }
+
+    /*
+     * Determine the checksum of the chunk file
+     */
+    private String getChunkChecksum(File chunkFile) {
+        try {
+            return checksumUtil.generateChecksum(chunkFile);
+        } catch(IOException e) {
+            throw new DuraCloudRuntimeException("Unable to generate checksum for file " +
+                                                chunkFile + " due to: " + e.getMessage());
+        }
+    }
+
+    protected void setChecksumUtil(ChecksumUtil checksumUtil) {
+        this.checksumUtil = checksumUtil;
+    }
+
+    /*
+     * Determines if a file chunk exists in DuraCloud storage with the given checksum
+     */
+    private boolean chunkInStorage(String spaceId, String contentId, String checksum) {
+        try {
+            if (contentStore.contentExists(spaceId, contentId)) { // dc file exists
+                Map<String, String> props =
+                    contentStore.getContentProperties(spaceId, contentId);
+                String dcChecksum = props.get(ContentStore.CONTENT_CHECKSUM);
+                if (null != checksum && null != dcChecksum && checksum.equals(dcChecksum)) {
+                    return true; // File with matching checksum already in DuraCloud
+                } else {
+                    return false; // File exists in DuraCloud, but checksums don't match
+                }
+            } else {
+                return false; // File does not exist in DuraCloud
+            }
+        } catch (ContentStoreException e) {
+            return false; // File does not exist in DuraCloud
+        }
     }
 
     @Override
@@ -104,9 +267,6 @@ public class DuracloudContentWriter implements ContentWriter {
         return write(spaceId, chunkable, null);
     }
 
-
-    
-    
     /**
      * This method writes a single chunk to the DataStore.
      *
@@ -123,10 +283,11 @@ public class DuracloudContentWriter implements ContentWriter {
                               ChunkInputStream chunk,
                               Map<String,String> properties)
         throws NotFoundException {
+
         log.debug("writeSingle: " + spaceId + ", " + chunk.getChunkId());
         createSpaceIfNotExist(spaceId);
 
-        addChunk(spaceId, chunkChecksum, chunk, properties);
+        addChunk(spaceId, chunkChecksum, chunk, properties, true);
 
         log.debug("written: " + spaceId + ", " + chunk.getChunkId());
         return chunk.getMD5();
@@ -137,10 +298,18 @@ public class DuracloudContentWriter implements ContentWriter {
                               String chunkChecksum,
                               ChunkInputStream chunk)
         throws NotFoundException {
+        return writeSingle(spaceId, chunkChecksum, chunk, true);
+    }
+
+    private String writeSingle(String spaceId,
+                              String chunkChecksum,
+                              ChunkInputStream chunk,
+                              boolean lastAttempt)
+        throws NotFoundException {
         log.debug("writeSingle: " + spaceId + ", " + chunk.getChunkId());
         createSpaceIfNotExist(spaceId);
 
-        addChunk(spaceId, chunkChecksum, chunk, null);
+        addChunk(spaceId, chunkChecksum, chunk, null, lastAttempt);
 
         log.debug("written: " + spaceId + ", " + chunk.getChunkId());
         return chunk.getMD5();
@@ -149,7 +318,8 @@ public class DuracloudContentWriter implements ContentWriter {
     private void addChunk(String spaceId,
                           String chunkChecksum,
                           ChunkInputStream chunk,
-                          Map<String,String> properties) {
+                          Map<String,String> properties,
+                          boolean lastAttempt) {
         String chunkId = chunk.getChunkId();
         log.debug("addChunk: " + spaceId + ", " + chunkId);
 
@@ -159,23 +329,44 @@ public class DuracloudContentWriter implements ContentWriter {
                              chunk.getChunkSize(),
                              chunk.getMimetype(),
                              chunkChecksum,
-                             properties);
+                             properties, 
+                             lastAttempt);
     }
 
-    private void addManifest(String spaceId,
-                             ChunksManifest manifest,
-                             Map<String, String> properties) {
+    private void addManifest(final String spaceId,
+                             final ChunksManifest manifest,
+                             final Map<String, String> properties,
+                             boolean lastAttempt) {
         String manifestId = manifest.getManifestId();
         log.debug("addManifest: " + spaceId + ", " + manifestId);
+        try {
+            createRetrier().execute(() -> {
+                try (KnownLengthInputStream manifestBody = manifest.getBody()) {
+                    String manifestChecksum =
+                        checksumUtil.generateChecksum(manifest.getBody());
+                    int manifestLength = manifestBody.getLength();
+                    addContentThenReport(spaceId,
+                                         manifestId,
+                                         manifestBody,
+                                         manifestLength,
+                                         manifest.getMimetype(),
+                                         manifestChecksum,
+                                         properties,
+                                         lastAttempt);
+                }
+                return "";
+            });
+        } catch (Exception e) {
+            String err =
+                "Failed to add manifest " + manifestId
+                         + " afert multiple retries: "
+                         + e.getMessage();
+            throw new DuraCloudRuntimeException(err, e);
+        }
+    }
 
-        KnownLengthInputStream manifestBody = manifest.getBody();
-        addContentThenReport(spaceId,
-                             manifestId,
-                             manifestBody,
-                             manifestBody.getLength(),
-                             manifest.getMimetype(),
-                             null,
-                             properties);
+    private Retrier createRetrier() {
+        return new Retrier(maxRetries, waitInMsBetweenRetries, 1);
     }
 
     private void addContentThenReport(String spaceId,
@@ -184,7 +375,8 @@ public class DuracloudContentWriter implements ContentWriter {
                                       long contentSize,
                                       String contentMimetype,
                                       String contentChecksum, 
-                                      Map<String,String> properties) {
+                                      Map<String,String> properties,
+                                      boolean lastAttempt) {
         AddContentResult result = new AddContentResult(spaceId,
                                                        contentId,
                                                        contentSize);
@@ -198,15 +390,20 @@ public class DuracloudContentWriter implements ContentWriter {
                              contentChecksum, 
                              properties);
         } catch (ContentNotAddedException e) {
-            if(throwOnError) {
+            if (throwOnError) {
                 String err = "Content not added due to: " + e.getMessage();
                 throw new DuraCloudRuntimeException(err, e);
             } else {
-                result.setState(AddContentResult.State.ERROR);
+                if(lastAttempt){
+                    result.setState(AddContentResult.State.ERROR);
+                } else {
+                    String err = "Content not added due to: " + e.getMessage();
+                    throw new DuraCloudRuntimeException(err, e);
+                }
             }
         }
 
-        if(!throwOnError) {
+        if (!throwOnError) {
             if (md5 != null) {
                 result.setMd5(md5);
                 result.setState(AddContentResult.State.SUCCESS);
@@ -228,14 +425,14 @@ public class DuracloudContentWriter implements ContentWriter {
                               Map<String,String> properties)
         throws ContentNotAddedException {
         
-        if(properties == null){
+        if (properties == null) {
             properties = new HashMap<String, String>();
         }
         
-        if(!properties.containsKey(StorageProvider.PROPERTIES_CONTENT_CREATOR)){
+        if (!properties.containsKey(StorageProvider.PROPERTIES_CONTENT_CREATOR)) {
             properties.put(StorageProvider.PROPERTIES_CONTENT_CREATOR, username);
         }
-        
+
         try {
             return contentStore.addContent(spaceId,
                                            contentId,

@@ -35,6 +35,7 @@ import org.duracloud.common.util.ChecksumUtil;
 import org.duracloud.common.util.DateUtil;
 import org.duracloud.storage.domain.ContentIterator;
 import org.duracloud.storage.domain.StorageAccount;
+import org.duracloud.storage.domain.StorageProviderType;
 import org.duracloud.storage.error.ChecksumMismatchException;
 import org.duracloud.storage.error.NotFoundException;
 import org.duracloud.storage.error.StorageException;
@@ -45,6 +46,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.InputStream;
+import java.nio.file.Watchable;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
@@ -91,6 +93,14 @@ public class S3StorageProvider extends StorageProviderBase {
                              Map<String, String> options) {
         this.accessKeyId = accessKey;
         this.s3Client = s3Client;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public StorageProviderType getStorageProviderType() {
+        return StorageProviderType.AMAZON_S3;
     }
 
     /**
@@ -547,6 +557,8 @@ public class S3StorageProvider extends StorageProviderBase {
                           "The content item was most likely never added to " +
                           "storage.", contentId, spaceId);
             }
+            // Rethrow to let the client know the file was not stored properly
+            throw e;
         }
 
         return providerChecksum;
@@ -557,18 +569,31 @@ public class S3StorageProvider extends StorageProviderBase {
      * If not, returns null.
      */
     protected String doesContentExist(String bucketName, String contentId) {
-        int maxAttempts = 5;
+        int maxAttempts = 90;
+        int waitInSeconds = 2;
+        int attempts = 0;
         for(int i=0; i<maxAttempts; i++) {
             try {
                 ObjectMetadata metadata =
                     s3Client.getObjectMetadata(bucketName, contentId);
                 if(null != metadata) {
-                  return metadata.getETag();
+                    if(attempts > 5){
+                        log.warn("contentId={} found in bucket={} after waiting for {} seconds...",
+                                 contentId, bucketName, attempts*waitInSeconds);
+                    }
+
+                    return metadata.getETag();
                 }
-            } catch(AmazonClientException e) {
-                wait(2);
-            }
+            } catch(AmazonClientException e) {}
+
+            attempts++;
+            wait(waitInSeconds);
         }
+
+        log.warn("contentId={} NOT found in bucket={} after waiting for {} seconds...",
+                 contentId, bucketName, attempts*waitInSeconds);
+
+
         return null;
     }
 

@@ -15,6 +15,8 @@ import org.duracloud.mill.manifest.ManifestStore;
 import org.duracloud.s3storage.S3ProviderUtil;
 import org.duracloud.s3storage.S3StorageProvider;
 import org.duracloud.s3task.S3TaskProvider;
+import org.duracloud.snapshotstorage.ChronopolisStorageProvider;
+import org.duracloud.snapshotstorage.DpnStorageProvider;
 import org.duracloud.snapshotstorage.SnapshotStorageProvider;
 import org.duracloud.snapshottask.SnapshotTaskProvider;
 import org.duracloud.storage.domain.StorageAccount;
@@ -25,8 +27,6 @@ import org.duracloud.storage.provider.StorageProvider;
 import org.duracloud.storage.provider.TaskProvider;
 import org.duracloud.storage.provider.TaskProviderFactory;
 import org.duracloud.storage.util.StorageProviderFactory;
-import org.springframework.aop.framework.AopProxy;
-import org.springframework.aop.framework.ProxyFactoryBean;
 
 import com.amazonaws.services.cloudfront.AmazonCloudFrontClient;
 import com.amazonaws.services.s3.AmazonS3Client;
@@ -104,9 +104,16 @@ public class TaskProviderFactoryImpl extends ProviderFactoryBase
                                                    unwrappedGlacierProvider,
                                                    s3Client, 
                                                    storageAccountId);
-        } else if (type.equals(StorageProviderType.SNAPSHOT)) {
-            SnapshotStorageProvider unwrappedSnapshotProvider =
-                new SnapshotStorageProvider(username, password);
+        } else if (type.equals(StorageProviderType.DPN) ||
+                   type.equals(StorageProviderType.CHRONOPOLIS)) {
+            SnapshotStorageProvider unwrappedSnapshotProvider;
+            if(type.equals(StorageProviderType.DPN)) {
+                unwrappedSnapshotProvider =
+                    new DpnStorageProvider(username, password);
+            } else {
+                unwrappedSnapshotProvider =
+                    new ChronopolisStorageProvider(username, password);
+            }
             AmazonS3Client s3Client =
                 S3ProviderUtil.getAmazonS3Client(username, password);
 

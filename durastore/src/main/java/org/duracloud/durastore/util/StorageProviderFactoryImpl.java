@@ -17,6 +17,8 @@ import org.duracloud.audit.provider.AuditStorageProvider;
 import org.duracloud.common.queue.TaskQueue;
 import org.duracloud.common.queue.aws.SQSTaskQueue;
 import org.duracloud.common.queue.noop.NoopTaskQueue;
+import org.duracloud.common.rest.DuraCloudRequestContextUtil;
+import org.duracloud.common.sns.AccountChangeNotifier;
 import org.duracloud.common.util.UserUtil;
 import org.duracloud.durastore.test.MockRetryStorageProvider;
 import org.duracloud.durastore.test.MockVerifyCreateStorageProvider;
@@ -26,12 +28,15 @@ import org.duracloud.irodsstorage.IrodsStorageProvider;
 import org.duracloud.rackspacestorage.RackspaceStorageProvider;
 import org.duracloud.s3storage.S3StorageProvider;
 import org.duracloud.sdscstorage.SDSCStorageProvider;
+import org.duracloud.snapshotstorage.ChronopolisStorageProvider;
+import org.duracloud.snapshotstorage.DpnStorageProvider;
 import org.duracloud.snapshotstorage.SnapshotStorageProvider;
 import org.duracloud.storage.domain.AuditConfig;
 import org.duracloud.storage.domain.DuraStoreInitConfig;
 import org.duracloud.storage.domain.StorageAccount;
 import org.duracloud.storage.domain.StorageAccountManager;
 import org.duracloud.storage.domain.StorageProviderType;
+import org.duracloud.storage.error.NotFoundException;
 import org.duracloud.storage.error.StorageException;
 import org.duracloud.storage.provider.BrokeredStorageProvider;
 import org.duracloud.storage.provider.StatelessStorageProvider;
@@ -57,33 +62,55 @@ public class StorageProviderFactoryImpl extends ProviderFactoryBase
     private UserUtil userUtil;
     private TaskQueue auditQueue;
     private boolean cacheStorageProvidersOnInit = false;
+    private DuraCloudRequestContextUtil contextUtil;
+    private AccountChangeNotifier notifier;
 
     public StorageProviderFactoryImpl(StorageAccountManager storageAccountManager,
                                       StatelessStorageProvider statelessStorageProvider,
-                                      UserUtil userUtil) {
+                                      UserUtil userUtil, 
+                                      DuraCloudRequestContextUtil contextUtil,
+                                      AccountChangeNotifier notifier) {
         this(storageAccountManager,
              statelessStorageProvider,
              userUtil,
+             contextUtil,
+             notifier,
              false);
     }
 
     public StorageProviderFactoryImpl(StorageAccountManager storageAccountManager,
                                       StatelessStorageProvider statelessStorageProvider,
                                       UserUtil userUtil,
+                                      DuraCloudRequestContextUtil contextUtil,
+                                      AccountChangeNotifier notifier,
                                       boolean cacheStorageProvidersOnInit) {
         super(storageAccountManager);
         this.statelessProvider = statelessStorageProvider;
         this.storageProviders = new ConcurrentHashMap<>();
         this.userUtil = userUtil;
         this.cacheStorageProvidersOnInit = cacheStorageProvidersOnInit;
+        this.contextUtil = contextUtil;
+        this.notifier = notifier;
+        
+    }
+
+    public StorageProviderFactoryImpl(StorageAccountManager storageAccountManager,
+                                      StatelessStorageProvider statelessStorageProvider,
+                                      UserUtil userUtil,
+                                      DuraCloudRequestContextUtil contextUtil,
+                                      AccountChangeNotifier notifier,
+                                      AuditConfig auditConfig) {
+        this(storageAccountManager, statelessStorageProvider, userUtil, contextUtil, notifier);
+        configureAuditQueue(auditConfig);
     }
 
     @Override
     public void initialize(DuraStoreInitConfig initConfig,
                            String instanceHost,
-                           String instancePort)
+                           String instancePort,
+                           String accountId)
             throws StorageException {
-        super.initialize(initConfig, instanceHost, instancePort);
+        super.initialize(initConfig, instanceHost, instancePort, accountId);
         configureAuditQueue();
         initializeStorageProviders();
     }
@@ -100,7 +127,10 @@ public class StorageProviderFactoryImpl extends ProviderFactoryBase
     }
 
     private void configureAuditQueue() {
-        AuditConfig auditConfig = getInitConfig().getAuditConfig();
+        configureAuditQueue(getInitConfig().getAuditConfig());
+    }
+    
+    private void configureAuditQueue(AuditConfig auditConfig) {
         if(null == auditConfig) {
             // If no audit config defined, turn off auditing
             this.auditQueue = new NoopTaskQueue();
@@ -110,18 +140,11 @@ public class StorageProviderFactoryImpl extends ProviderFactoryBase
                 // If no queue name is defined, turn off auditing
                 this.auditQueue = new NoopTaskQueue();
             } else {
-                // If username and pass are provided, push into system props
-                // for the SQS client to pick up
-                String auditUsername = auditConfig.getAuditUsername();
-                String auditPassword = auditConfig.getAuditPassword();
-                if(null != auditUsername && null != auditPassword) {
-                    System.setProperty("aws.accessKeyId", auditUsername);
-                    System.setProperty("aws.secretKey", auditPassword);
-                }
                 this.auditQueue = new SQSTaskQueue(queueName);
             }
         }
     }
+
 
     @Override
     public TaskQueue getAuditQueue() {
@@ -157,8 +180,8 @@ public class StorageProviderFactoryImpl extends ProviderFactoryBase
 
     /**
      * Retrieves a particular storage provider based on the storage account ID.
-     * If a storage account cannot be retrieved, the primary storage provider
-     * account is used.
+     * If no storage ID is provided use the primary storage provider account
+     * If no storage account can be found with the given ID, throw NotFoundException
      *
      * @param storageAccountId - the ID of the storage provider account
      * @return
@@ -167,6 +190,7 @@ public class StorageProviderFactoryImpl extends ProviderFactoryBase
     @Override
     public StorageProvider getStorageProvider(String storageAccountId)
             throws StorageException {
+        // If no store ID is provided, retrieves the primary store ID
         storageAccountId = checkStorageAccountId(storageAccountId);
 
         if(storageProviders.containsKey(storageAccountId)) {
@@ -176,10 +200,11 @@ public class StorageProviderFactoryImpl extends ProviderFactoryBase
         StorageAccountManager storageAccountManager = getAccountManager();
         StorageAccount account =
             storageAccountManager.getStorageAccount(storageAccountId);
+
         if (account == null) {
-            account = storageAccountManager.getPrimaryStorageAccount();
-            storageAccountId = account.getId();
+            throw new NotFoundException("No store exists with ID " + storageAccountId);
         }
+
         String username = account.getUsername();
         String password = account.getPassword();
         StorageProviderType type = account.getType();
@@ -199,8 +224,10 @@ public class StorageProviderFactoryImpl extends ProviderFactoryBase
             storageProvider = new IrodsStorageProvider(username,
                                                        password,
                                                        account.getOptions());
-        } else if (type.equals(StorageProviderType.SNAPSHOT)) {
-            storageProvider = new SnapshotStorageProvider(username, password);
+        } else if (type.equals(StorageProviderType.DPN)) {
+            storageProvider = new DpnStorageProvider(username, password);
+        } else if (type.equals(StorageProviderType.CHRONOPOLIS)) {
+            storageProvider = new ChronopolisStorageProvider(username, password);
         } else if (type.equals(StorageProviderType.TEST_RETRY)) {
             storageProvider = new MockRetryStorageProvider();
         } else if (type.equals(StorageProviderType.TEST_VERIFY_CREATE)) {
@@ -225,7 +252,7 @@ public class StorageProviderFactoryImpl extends ProviderFactoryBase
             ((StorageProviderBase)storageProvider).setWrappedStorageProvider(auditProvider);
         }
         
-        StorageProvider aclProvider = new ACLStorageProvider(auditProvider);
+        StorageProvider aclProvider = new ACLStorageProvider(auditProvider, notifier, contextUtil);
         StorageProvider brokeredProvider =
             new BrokeredStorageProvider(statelessProvider,
                                         aclProvider,

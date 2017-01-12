@@ -7,10 +7,27 @@
  */
 package org.duracloud.client;
 
-import org.apache.commons.httpclient.Header;
-import org.apache.commons.httpclient.HttpStatus;
+
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.text.MessageFormat;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.ResourceBundle;
+
 import org.apache.commons.lang3.builder.ReflectionToStringBuilder;
+import org.apache.http.Header;
+import org.apache.http.HttpStatus;
+import org.duracloud.common.constant.Constants;
 import org.duracloud.common.constant.ManifestFormat;
+import org.duracloud.common.json.JaxbJsonSerializer;
 import org.duracloud.common.model.AclType;
 import org.duracloud.common.retry.ExceptionHandler;
 import org.duracloud.common.retry.Retriable;
@@ -33,6 +50,7 @@ import org.duracloud.reportdata.bitintegrity.BitIntegrityReport;
 import org.duracloud.reportdata.bitintegrity.BitIntegrityReportProperties;
 import org.duracloud.reportdata.bitintegrity.BitIntegrityReportResult;
 import org.duracloud.storage.domain.StorageProviderType;
+import org.duracloud.storage.error.ChecksumMismatchException;
 import org.duracloud.storage.provider.StorageProvider;
 import org.duracloud.storage.util.IdUtil;
 import org.jdom.Document;
@@ -40,17 +58,6 @@ import org.jdom.Element;
 import org.jdom.input.SAXBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
 
 import static org.duracloud.storage.provider.StorageProvider.PROPERTIES_SPACE_ACL;
 
@@ -69,7 +76,7 @@ public class ContentStoreImpl implements ContentStore {
 
     private RestHttpHelper restHelper;
 
-    private static final String HEADER_PREFIX = "x-dura-meta-";
+    private static final String HEADER_PREFIX = Constants.HEADER_PREFIX;
 
     private int maxRetries = 3;
 
@@ -78,6 +85,9 @@ public class ContentStoreImpl implements ContentStore {
 
     private ExceptionHandler retryExceptionHandler;
 
+    
+    private String clientVersion;
+    
     /**
      * Creates a ContentStore. This ContentStore uses the default number of
      * retries when a failure occurs (3).
@@ -98,9 +108,17 @@ public class ContentStoreImpl implements ContentStore {
         this.retryExceptionHandler = new ExceptionHandler() {
             @Override
             public void handle(Exception ex) {
-                log.warn(ex.getMessage());
+                if(!(ex instanceof NotFoundException)){
+                    log.warn(ex.getMessage());
+                }else{
+                    log.debug(ex.getMessage());
+                }
             }
         };
+        
+        this.clientVersion =
+            ResourceBundle.getBundle("storeclient").getString("version");
+        
     }
 
     /**
@@ -564,20 +582,16 @@ public class ContentStoreImpl implements ContentStore {
                              final String contentMimeType,
                              final String contentChecksum,
                              final Map<String, String> contentProperties)
-        throws ContentStoreException {
-        return execute(new Retriable() {
-            @Override
-            public String retry() throws ContentStoreException {
-                // The actual method being executed
-                return doAddContent(spaceId,
-                                    contentId,
-                                    content,
-                                    contentSize,
-                                    contentMimeType,
-                                    contentChecksum,
-                                    contentProperties);
-            }
-        });
+                                 throws ContentStoreException {
+        //unlike other ContentStore methods, addContent() should not be retried since the stream
+        //must be reset by the caller in order to produce valid results.
+        return doAddContent(spaceId,
+                            contentId,
+                            content,
+                            contentSize,
+                            contentMimeType,
+                            contentChecksum,
+                            contentProperties);
     }
 
     private String doAddContent(String spaceId,
@@ -609,10 +623,11 @@ public class ContentStoreImpl implements ContentStore {
         }
         
         try {
+            
             HttpResponse response = restHelper.put(url,
                                                    content,
-                                                   String.valueOf(contentSize),
                                                    contentMimeType,
+                                                   contentSize,
                                                    headers);
             checkResponse(response, HttpStatus.SC_CREATED);
             Header checksum =
@@ -620,7 +635,24 @@ public class ContentStoreImpl implements ContentStore {
             if(checksum == null) {
                 checksum = response.getResponseHeader(HttpHeaders.ETAG);
             }
-            return checksum.getValue();
+            String returnedChecksum =  checksum.getValue();
+            
+            if(contentChecksum != null && !returnedChecksum.equals(contentChecksum)){
+                String message = MessageFormat.format("checksum returned from durastore ({0}) " +
+                                                      "does not match the checksum that was sent ({1}): " + 
+                                                      "task={2}, spaceId={3}, contentId={4}",
+                                                       returnedChecksum,
+                                                       contentChecksum,
+                                                       task,
+                                                       spaceId, 
+                                                       contentId);
+                log.error(message);
+                throw new ChecksumMismatchException(message,
+                                                    false);
+            }
+            
+            return returnedChecksum;
+            
         } catch (InvalidIdException e) {
             throw new InvalidIdException(task, spaceId, contentId, e);            
         } catch(NotFoundException e) {
@@ -975,6 +1007,8 @@ public class ContentStoreImpl implements ContentStore {
                 headers.put(HEADER_PREFIX + key, properties.get(key));
             }
         }
+        
+        headers.put(Constants.CLIENT_VERSION_HEADER, clientVersion);
         return headers;
     }
 
@@ -1104,6 +1138,18 @@ public class ContentStoreImpl implements ContentStore {
                 return doPerformTask(taskName, taskParameters);
             }
         });
+    }
+    
+    
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public String performTaskWithNoRetries(final String taskName,
+                              final String taskParameters)
+        throws ContentStoreException {
+
+        return doPerformTask(taskName, taskParameters);
     }
 
     private String doPerformTask(String taskName, String taskParameters)
@@ -1246,13 +1292,106 @@ public class ContentStoreImpl implements ContentStore {
                     new SimpleDateFormat(DateFormat.DEFAULT_FORMAT.getPattern());
                 properties.setCompletionDate(format.parse(header.getValue()));
             } else if (name.equals(HttpHeaders.CONTENT_LENGTH)) {
-                properties.setSize(Integer.valueOf(header.getValue()));
+                properties.setSize(Long.valueOf(header.getValue()));
             }
         }
 
         return properties;
     }
     
+    
+    @Override
+    public SpaceStatsDTOList getSpaceStats(String spaceId, Date start, Date end)
+        throws ContentStoreException {
+        String url = buildSpaceStatsURL(spaceId, start, end);
+        try {
+            HttpResponse response = restHelper.get(url);
+            checkResponse(response, HttpStatus.SC_OK);
+            String body = response.getResponseBody();
+            JaxbJsonSerializer<SpaceStatsDTOList> serializer = new JaxbJsonSerializer<>(SpaceStatsDTOList.class);
+            return serializer.deserialize(body);
+        } catch(NotFoundException e) {
+            throw new NotFoundException("spaceId = " + spaceId);
+        } catch(UnauthorizedException e) {
+            throw new UnauthorizedException(spaceId, e);
+        } catch (Exception e) {
+            throw new ContentStoreException("failed to retrieve space stats for " + spaceId, e);
+        }
+    }
+
+    private String buildSpaceStatsURL(String spaceId, Date start, Date end) {
+        String url = buildURL("/report/space/" + spaceId);
+        
+        if(start != null){
+            url = addQueryParameter(url, "start", start.getTime()+"");
+        }
+        
+        if(end != null){
+            url = addQueryParameter(url, "end", end.getTime()+"");
+        }
+        
+        url = addStoreIdQueryParameter(url);
+        return url;
+    }
+
+    @Override
+    public SpaceStatsDTOList getStorageProviderStats(Date start, Date end)
+        throws ContentStoreException {
+        String url = buildStorageProviderStatsURL(start, end);
+        try {
+            HttpResponse response = restHelper.get(url);
+            checkResponse(response, HttpStatus.SC_OK);
+            String body = response.getResponseBody();
+            JaxbJsonSerializer<SpaceStatsDTOList> serializer = new JaxbJsonSerializer<>(SpaceStatsDTOList.class);
+            return serializer.deserialize(body);
+        } catch(NotFoundException e) {
+            throw new NotFoundException("storeId = " + getStoreId());
+        } catch(UnauthorizedException e) {
+            throw new UnauthorizedException(getStoreId(), e);
+        } catch (Exception e) {
+            throw new ContentStoreException("failed to retrieve storage provider stats for " + getStoreId(), e);
+        }
+    }
+
+    
+    private String buildStorageProviderStatsURL(Date start, Date end) {
+        String url = buildURL("/report/store");
+        
+        if(start != null){
+            url = addQueryParameter(url, "start", start.getTime()+"");
+        }
+        
+        if(end != null){
+            url = addQueryParameter(url, "end", end.getTime()+"");
+        }
+        
+        url = addStoreIdQueryParameter(url);
+        return url;
+    }
+    
+    @Override
+    public SpaceStatsDTOList getStorageProviderStatsByDay(Date date)
+        throws ContentStoreException {
+        String url = buildStorageProviderStatsURL(date);
+        try {
+            HttpResponse response = restHelper.get(url);
+            checkResponse(response, HttpStatus.SC_OK);
+            String body = response.getResponseBody();
+            JaxbJsonSerializer<SpaceStatsDTOList> serializer = new JaxbJsonSerializer<>(SpaceStatsDTOList.class);
+            return serializer.deserialize(body);
+        } catch(UnauthorizedException e) {
+            throw new UnauthorizedException(storeId, e);
+        } catch (Exception e) {
+            throw new ContentStoreException("failed to retrieve storage provider stats for " + storeId, e);
+        }
+    }
+    
+    private String buildStorageProviderStatsURL(Date date) {
+        String url = buildURL("/report/store/"+date.getTime());
+        url = addStoreIdQueryParameter(url);
+        return url;
+    }
+
     @Override
     public String toString() {
         return ReflectionToStringBuilder.toString(this);

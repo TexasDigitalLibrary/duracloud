@@ -22,7 +22,7 @@ $(function() {
     // reusable validators that are used with various forms.
     // used in conjunctions with the jquery.validate.js and jquery.form
     $.validator.addMethod("mimetype", function(value, element) {
-      return value == null || value == '' || /^(\w[-]?)*\w\/(\w[-+]?)*\w$/.test(value);
+      return value == null || value == '' || /^(\w[-]?)*\w\/(\w[-+]?)*\w(;(\s*)?\w*[=](\w[-+]?)*)?$/.test(value);
     }, "Invalid Mimetype");
 
     $.validator.addMethod("startswith", function(value, element) {
@@ -283,7 +283,7 @@ $(function() {
     _isSnapshot : function(storeId) {
       var ischron = false;
       $.each(storeProviders, function(i, provider) {
-        if (storeId == provider.id && provider.type == 'snapshot') {
+        if (storeId == provider.id && (provider.type == 'dpn' || provider.type == 'chronopolis')) {
           ischron = true;
           return false;
         }
@@ -3594,7 +3594,7 @@ $(function() {
 				          	  						var tdKey = $.fn.create('td');
 				          	  						var tdVal = $.fn.create('td');
 				          	  						tdKey.append(key);
-				          	  						tdVal.append(value);
+				          	  						tdVal.append(value.toString());
 				          	  						tr.append(tdKey);
 				          	  						tr.append(tdVal);
 				          	  					});

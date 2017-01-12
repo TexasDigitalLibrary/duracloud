@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 
 import javax.annotation.PostConstruct;
+import javax.annotation.PreDestroy;
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang3.event.EventListenerSupport;
@@ -95,17 +96,33 @@ public class SyncProcessManagerImpl implements SyncProcessManager {
             list.removeListener(InternalChangedListListener.this);
 
             //in separate thread start shutdown only
-            //after  list is absolutely empty (no reserved files)
+            //after list is absolutely empty (no reserved files)
             //and sync manager has finished transferring files.
+            
+            final SyncManager sm = syncManager;
             new Thread(new Runnable(){
                 @Override
                 public void run() {
-                    while (!syncManager.getFilesInTransfer().isEmpty() && 
-                        list.getListSizeIncludingReservedFiles() > 0) {
-                        SyncProcessManagerImpl.this.sleep();
+                    while (!allWorkComplete(0)) {
+                        SyncProcessManagerImpl.this.sleep(2000);
                     }
 
                     SyncProcessManagerImpl.this.stop();
+                }
+
+                // Verify work is complete multiple times before giving
+                // the ok to shut everything down
+                private boolean allWorkComplete(int attempt) {
+                    boolean workComplete = (sm == null || syncManager.getFilesInTransfer().isEmpty()) &&
+                                           list.getListSizeIncludingReservedFiles() <= 0;
+
+                    if(!workComplete || (workComplete && attempt > 2)) {
+                        return workComplete;
+                    } else {
+                        // Wait before another attempt
+                        SyncProcessManagerImpl.this.sleep(2000);
+                        return allWorkComplete(attempt+1);
+                    }
                 }
             }).start();
         }
@@ -294,7 +311,7 @@ public class SyncProcessManagerImpl implements SyncProcessManager {
                                                username,
                                                spaceId,
                                                syncDeletes,
-                                               1073741824, // 1GB chunk size
+                                               this.syncConfigurationManager.getMaxFileSizeInBytes(), // 1GB chunk size
                                                this.syncConfigurationManager.isSyncUpdates(),
                                                this.syncConfigurationManager.isRenameUpdates(),
                                                this.syncConfigurationManager.isJumpStart(),
@@ -366,11 +383,16 @@ public class SyncProcessManagerImpl implements SyncProcessManager {
             }
         }, "walk-completion-checker thread").start();
     }
-    
+
+    protected void sleep() {
+        sleep(500);
+    }
+
     private void sleep(long millis) {
         try {
             Thread.sleep(millis);
         } catch (InterruptedException e) {
+            log.warn(e.getMessage(), e);
         }
     }
     
@@ -434,6 +456,7 @@ public class SyncProcessManagerImpl implements SyncProcessManager {
         if(this.dirWalker != null){
             this.dirWalker.stopWalk();
         }
+
     }
     
     private void resetChangeList() {
@@ -482,14 +505,6 @@ public class SyncProcessManagerImpl implements SyncProcessManager {
                 changeState(stoppedState);
             }
         }.start();
-    }
-    
-    protected void sleep() {
-        try {
-            Thread.sleep(500);
-        } catch (InterruptedException e) {
-            log.warn(e.getMessage(), e);
-        }
     }
 
     private void pauseImpl() {
@@ -645,8 +660,9 @@ public class SyncProcessManagerImpl implements SyncProcessManager {
 
     @Override
     public List<MonitoredFile> getMonitoredFiles() {
-        if (this.syncManager != null) {
-            return this.syncManager.getFilesInTransfer();
+        SyncManager sm = this.syncManager;
+        if (sm != null) {
+            return sm.getFilesInTransfer();
         }
         return new LinkedList<MonitoredFile>();
     }
@@ -677,5 +693,11 @@ public class SyncProcessManagerImpl implements SyncProcessManager {
     @Override
     public void clearFailures() {
         StatusManager.getInstance().clearFailed();
+    }
+    
+    @PreDestroy
+    public void shutdown(){
+        this.syncBackupManager.endBackups();
+        ChangedList.getInstance().shutdown();
     }
 }

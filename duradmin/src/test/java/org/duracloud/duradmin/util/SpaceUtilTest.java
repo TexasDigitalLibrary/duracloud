@@ -17,7 +17,6 @@ import java.util.List;
 import java.util.Map;
 
 import junit.framework.Assert;
-
 import org.duracloud.client.ContentStore;
 import org.duracloud.common.constant.Constants;
 import org.duracloud.common.model.AclType;
@@ -30,7 +29,8 @@ import org.junit.Before;
 import org.junit.Test;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
-import org.springframework.security.core.authority.GrantedAuthorityImpl;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+
 /**
  * 
  * @author Daniel Bernstein
@@ -90,7 +90,7 @@ public class SpaceUtilTest {
     
     protected void expectAuthority(String role, int times){
         Collection auths = Arrays.asList(new GrantedAuthority[] { 
-            new GrantedAuthorityImpl(role) });
+            new SimpleGrantedAuthority(role) });
         EasyMock.expect(authentication.getAuthorities())
         .andReturn(auths)
         .times(times);
@@ -156,7 +156,7 @@ public class SpaceUtilTest {
     public void testSnashotInProgress() throws Exception{
         Map<String,String> map = new HashMap<String,String>();
         map.put(Constants.SNAPSHOT_ID_PROP, "test");
-        expectGetStorageProviderType(StorageProviderType.SNAPSHOT);
+        expectGetStorageProviderType(StorageProviderType.DPN);
         EasyMock.expect(this.contentStore.getSpaceProperties(
                                                EasyMock.isA(String.class)))
                                           .andReturn(map);

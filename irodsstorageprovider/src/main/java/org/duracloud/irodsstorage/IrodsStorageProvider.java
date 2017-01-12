@@ -47,6 +47,31 @@ import edu.umiacs.irods.operation.MetaDataMap;
 import edu.umiacs.irods.operation.QueryBuilder;
 import edu.umiacs.irods.operation.QueryResult;
 import edu.umiacs.irods.operation.UnknownSizeOutputStream;
+import org.duracloud.common.model.AclType;
+import org.duracloud.storage.domain.StorageProviderType;
+import org.duracloud.storage.error.StorageException;
+import org.duracloud.storage.provider.StorageProvider;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.BufferedInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.TimeZone;
+
+import static org.duracloud.storage.domain.StorageAccount.OPTS.BASE_DIRECTORY;
+import static org.duracloud.storage.domain.StorageAccount.OPTS.HOST;
+import static org.duracloud.storage.domain.StorageAccount.OPTS.PORT;
+import static org.duracloud.storage.domain.StorageAccount.OPTS.RESOURCE;
+import static org.duracloud.storage.domain.StorageAccount.OPTS.ZONE;
 
 /**
  * The irods provider assumes that storage spaces are subdirectories in the base directory given to the constructor. All files in the subdir will be listed recursively back to a client as contents of that space.
@@ -103,6 +128,17 @@ public class IrodsStorageProvider extends StorageProviderBase {
         }
     }
 
+    @Override
+    public StorageProviderType getStorageProviderType() {
+        return StorageProviderType.IRODS;
+    }
+
+    /**
+     * Return a list of irods spaces. IRODS spaces are directories under
+     * the baseDirectory of this provider.
+     * 
+     * @return
+     */
     @Override
     public Iterator<String> getSpaces() {
         ConnectOperation co = new ConnectOperation(host, port, username, password, zone);

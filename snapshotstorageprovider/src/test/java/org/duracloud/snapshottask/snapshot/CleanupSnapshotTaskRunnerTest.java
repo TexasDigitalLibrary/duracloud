@@ -10,9 +10,11 @@ package org.duracloud.snapshottask.snapshot;
 import static org.easymock.EasyMock.*;
 import static org.junit.Assert.*;
 
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import org.duracloud.audit.task.AuditTask;
@@ -22,6 +24,7 @@ import org.duracloud.common.queue.task.Task;
 import org.duracloud.mill.db.model.ManifestItem;
 import org.duracloud.mill.manifest.ManifestStore;
 import org.duracloud.snapshotstorage.SnapshotStorageProvider;
+import org.duracloud.storage.domain.StorageProviderType;
 import org.duracloud.storage.provider.StorageProvider;
 import org.easymock.Capture;
 import org.easymock.EasyMockSupport;
@@ -98,6 +101,8 @@ public class CleanupSnapshotTaskRunnerTest extends EasyMockSupport{
         for(int i = 0; i < 10; i++){
             ManifestItem item = new ManifestItem();
             item.setContentId("content-id-"+i);
+            item.setContentSize(i+"");
+            item.setContentChecksum("content-checksum-"+i);
             manifestItems.add(item);
         }
         
@@ -106,7 +111,10 @@ public class CleanupSnapshotTaskRunnerTest extends EasyMockSupport{
         expect(manifestStore.getItems(account, storeId, spaceId)).andReturn(it);
 
         Capture<Set<Task>> taskCapture = new Capture<>();
-        
+
+        expect(unwrappedSnapshotProvider.getStorageProviderType())
+            .andReturn(StorageProviderType.AMAZON_S3);
+
         auditQueue.put(capture(taskCapture));
         expectLastCall();
         Authentication auth = createMock(Authentication.class);
@@ -128,15 +136,24 @@ public class CleanupSnapshotTaskRunnerTest extends EasyMockSupport{
         Thread.sleep(500);
 
         Set<Task> tasks = taskCapture.getValue();
-        assertEquals(manifestItems.size(), tasks.size());
-        
+        Map<String,Task> taskMapByContentId = new HashMap<>();
         for(Task task : tasks){
+            taskMapByContentId.put(task.getProperty(AuditTask.CONTENT_ID_PROP), task);
+        }
+        assertEquals(manifestItems.size(), taskMapByContentId.size());
+        
+        for(ManifestItem item : manifestItems){
+            Task task = taskMapByContentId.get(item.getContentId());
             assertNotNull(task.getProperty(AuditTask.DATE_TIME_PROP));
             assertNotNull(task.getProperty(AuditTask.CONTENT_ID_PROP));
             assertEquals(ActionType.DELETE_CONTENT.name(), task.getProperty(AuditTask.ACTION_PROP));
             assertEquals(account, task.getProperty(AuditTask.ACCOUNT_PROP));
             assertEquals(storeId, task.getProperty(AuditTask.STORE_ID_PROP));
             assertEquals(spaceId, task.getProperty(AuditTask.SPACE_ID_PROP));
+            assertEquals(item.getContentId(), task.getProperty(AuditTask.CONTENT_ID_PROP));
+            assertEquals(item.getContentChecksum(), task.getProperty(AuditTask.CONTENT_CHECKSUM_PROP));
+            assertEquals(item.getContentSize(), task.getProperty(AuditTask.CONTENT_SIZE_PROP));
+
         }
         
     }

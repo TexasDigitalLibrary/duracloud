@@ -7,6 +7,12 @@
  */
 package org.duracloud.client;
 
+import java.io.InputStream;
+import java.util.Date;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+
 import org.duracloud.common.constant.ManifestFormat;
 import org.duracloud.common.model.AclType;
 import org.duracloud.common.retry.ExceptionHandler;
@@ -17,12 +23,8 @@ import org.duracloud.error.InvalidIdException;
 import org.duracloud.error.NotFoundException;
 import org.duracloud.reportdata.bitintegrity.BitIntegrityReport;
 import org.duracloud.reportdata.bitintegrity.BitIntegrityReportProperties;
+import org.duracloud.reportdata.storage.SpaceStatsDTO;
 import org.duracloud.storage.provider.StorageProvider;
-
-import java.io.InputStream;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
 
 /**
  * Provides access to a content store
@@ -402,7 +404,7 @@ public interface ContentStore {
         throws ContentStoreException;
 
     /**
-     * Perform a task which is outside of the standard set of storage activites
+     * Perform a task (with retries on failure) which is outside of the standard set of storage activities
      * but is available through one or more storage providers.
      *
      * @param taskName the name of the task to be performed
@@ -412,6 +414,20 @@ public interface ContentStore {
      * @return the return value of the task
      */
     public String performTask(String taskName, String taskParameters)
+        throws ContentStoreException;
+
+
+    /**
+     * Perform a task (without retrying on failure) which is outside of the standard set of storage activities
+     * but is available through one or more storage providers.
+     *
+     * @param taskName the name of the task to be performed
+     * @param taskParameters the parameters of the task, what is included here
+     *                       and how the information is formatted is
+     *                       task-specific
+     * @return the return value of the task
+     */
+    public String performTaskWithNoRetries(String taskName, String taskParameters)
         throws ContentStoreException;
 
     /**
@@ -463,4 +479,38 @@ public interface ContentStore {
     public BitIntegrityReportProperties
         getBitIntegrityReportProperties(String spaceId)
             throws ContentStoreException;
+    
+    /**
+     * Returns a space stats time series for presenting in a graph.
+     * @param spaceId
+     * @param from
+     * @param to
+     * @return
+     * @throws ContentStoreException
+     */
+    public SpaceStatsDTOList getSpaceStats(String spaceId,  Date from,  Date to) throws ContentStoreException;
+
+    
+    /**
+     * Returns a base based series of stats for all spaces within a storage provider for the
+     * specified time range.  
+     * 
+     * @param from
+     * @param to
+     * @return
+     * @throws ContentStoreException
+     */
+    public SpaceStatsDTOList getStorageProviderStats( Date from,  Date to)
+                          throws ContentStoreException;
+    
+    /**
+     * Returns stats for all spaces within a storage provider for a particular
+     * day, averaging bit and object counts between 0:00:00 and 23:59:59 UTC.
+     * 
+     * @param date
+     * @return
+     * @throws ContentStoreException
+     */
+    public SpaceStatsDTOList getStorageProviderStatsByDay(Date date)
+                          throws ContentStoreException;
 }

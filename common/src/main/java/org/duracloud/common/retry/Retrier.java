@@ -14,7 +14,15 @@ import org.slf4j.LoggerFactory;
 /**
  * Handles performing actions that need to be retried.
  *
- * Expected usage example:
+ * Expected usage example (using lambda):
+ *
+ * Retrier retrier = new Retrier();
+ * return retrier.execute(() -> {
+ *     // The actual method being executed
+ *     return doWork();
+ * });
+ *
+ * Older style usage, this is equivalent to the above example:
  *
  * Retrier retrier = new Retrier();
  * return retrier.execute(new Retriable() {
@@ -131,7 +139,7 @@ public class Retrier {
             } catch (Exception e) {
                 lastException = e;
                 exceptionHandler.handle(e);
-                if(i < maxRetries){
+                if(i <= maxRetries){
                     WaitUtil.waitMs((long)Math.pow(i,waitBetweenRetriesMultiplier)*waitBetweenRetries);
                 }
             }

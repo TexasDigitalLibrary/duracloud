@@ -7,34 +7,43 @@
  */
 package org.duracloud.common.web;
 
-import org.apache.commons.httpclient.methods.multipart.FilePart;
-import org.apache.commons.httpclient.methods.multipart.Part;
-import org.apache.commons.httpclient.methods.multipart.StringPart;
-import org.duracloud.common.model.Credential;
-import org.duracloud.common.web.RestHttpHelper.HttpResponse;
-import org.junit.After;
-import org.junit.AfterClass;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import org.junit.Before;
-import org.junit.BeforeClass;
-import org.junit.Test;
-import org.mortbay.jetty.Server;
-import org.mortbay.jetty.servlet.Context;
-import org.mortbay.jetty.servlet.ServletHolder;
-
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.net.HttpURLConnection;
+import java.net.InetAddress;
 import java.util.HashMap;
 import java.util.Map;
+
+import org.apache.http.HttpEntity;
+import org.apache.http.entity.mime.MultipartEntityBuilder;
+import org.duracloud.common.model.Credential;
+import org.duracloud.common.web.RestHttpHelper.HttpResponse;
+import org.eclipse.jetty.server.Server;
+import org.eclipse.jetty.servlet.ServletContextHandler;
+import org.eclipse.jetty.servlet.ServletHolder;
+import org.junit.After;
+import org.junit.AfterClass;
+import org.junit.Before;
+import org.junit.BeforeClass;
+import org.junit.Test;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 
 public class RestHttpHelperTest {
 
     private static Server server;
 
-    private static String host = "localhost";
+    private static String host = null;
+    
+    static {
+        try {
+            host = InetAddress.getLocalHost().getHostAddress();
+        }catch(Exception ex){
+            throw new RuntimeException(ex);
+        }
+    }
 
     private static int port = 8088;
 
@@ -47,15 +56,20 @@ public class RestHttpHelperTest {
     @BeforeClass
     public static void startServer() throws Exception {
         server = new Server(port);
-        Context root = new Context(server, "/", Context.SESSIONS);
-        root.addServlet(new ServletHolder(new MockServlet()), context);
+
+        ServletContextHandler context =
+            new ServletContextHandler(ServletContextHandler.SESSIONS);
+        context.setContextPath("/");
+        server.setHandler(context);
+        context.addServlet(new ServletHolder(new MockServlet()),"/*");
+
         server.start();
     }
 
     @Before
     public void setUp() throws Exception {
         helper = new RestHttpHelper();
-        headers = new HashMap<String, String>();
+        headers = new HashMap<>();
         headers.put("header-key0", "header-value0");
     }
 
@@ -110,15 +124,15 @@ public class RestHttpHelperTest {
 
     @Test
     public void testMultipartPost() throws Exception {
-        File file = createTmpFile();
+        MultipartEntityBuilder builder = MultipartEntityBuilder.create();
+        builder.addTextBody("text-part", "text");
+        // Note: Including a file as one piece of the multipart body
+        // causes this test to fail intermittently. Replacing it here with string bytes.
+        builder.addBinaryBody("binary-part", "binary-content".getBytes());
+        HttpEntity reqEntity = builder.build();
 
-        Part[] parts =
-                {new StringPart("param_name", "value"),
-                        new FilePart(file.getName(), file)};
-
-        HttpResponse response = helper.multipartPost(getUrl(), parts);
+        HttpResponse response = helper.multipartPost(getUrl(), reqEntity);
         verifyResponse(response);
-        file.delete();
     }
 
     @Test
@@ -136,8 +150,7 @@ public class RestHttpHelperTest {
         HttpResponse response =
                 helper.multipartFileStreamPost(getUrl(),
                         file.getName(),
-                        fileStream,
-                        fileStream.available());
+                        fileStream);
         verifyResponse(response);
         file.delete();
     }
