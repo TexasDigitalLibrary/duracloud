@@ -227,8 +227,8 @@ $(function() {
       var unpopped = ('state' in history);
       if (unpopped) {
         setTimeout(function() {
-          var evt = new Event("PopStateEvent", {bubbles: false, cancelable: false});
-          window.addEventListener('popstate', function (e) {}, false);
+          var evt = new Event("popstate", {bubbles: false, cancelable: false});
+          window.addEventListener("popstate", function (e) {}, false);
           window.dispatchEvent(evt);          
         });
       }
